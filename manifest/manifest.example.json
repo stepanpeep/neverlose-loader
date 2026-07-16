@@ -132,7 +132,7 @@
         {
           "path": "mods/fabric-loader 6.17+.jar",
           "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.0/nl.jar",
-          "sha256": "904F5071FE014CB8D80AFB6AFA792899308607F86DFBD359EBFC6C6E11049B55"
+          "sha256": "ae38c9d22da65deef6920259213a4f4c0fe097826594c710c2e581b1b0fb7dfe"
         }
       ],
       "mainClass": "",
