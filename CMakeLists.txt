@@ -37,10 +37,6 @@ target_link_libraries(NeverloseLoader PRIVATE
 set_property(TARGET NeverloseLoader PROPERTY VS_DPI_AWARE "PerMonitor")
 
 add_custom_command(TARGET NeverloseLoader POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:NeverloseLoader>/manifest"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/manifest/manifest.example.json"
-        "$<TARGET_FILE_DIR:NeverloseLoader>/manifest/manifest.example.json"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:NeverloseLoader>/assets"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/neverlose-loader-logo-1024.png"
@@ -48,5 +44,4 @@ add_custom_command(TARGET NeverloseLoader POST_BUILD
 )
 
 install(TARGETS NeverloseLoader RUNTIME DESTINATION .)
-install(DIRECTORY manifest DESTINATION .)
 install(DIRECTORY assets DESTINATION .)
