@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   ip_hash TEXT NOT NULL,
   last_seen INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
-  last_message_at INTEGER NOT NULL DEFAULT 0
+  last_message_at INTEGER NOT NULL DEFAULT 0,
+  role TEXT NOT NULL DEFAULT 'USER' CHECK(role IN ('USER', 'DEV'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_online
@@ -17,7 +18,8 @@ CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   author TEXT NOT NULL,
   content TEXT NOT NULL,
-  timestamp INTEGER NOT NULL
+  timestamp INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'USER' CHECK(role IN ('USER', 'DEV'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp

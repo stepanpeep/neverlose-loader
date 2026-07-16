@@ -49,7 +49,7 @@ async function authenticate(request, env) {
   const tokenHash = await sha256(token);
   const timestamp = now();
   const session = await env.DB.prepare(
-    "SELECT token_hash, username, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?"
+    "SELECT token_hash, username, role, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?"
   ).bind(tokenHash, timestamp).first();
   if (!session) return null;
   await env.DB.prepare("UPDATE sessions SET last_seen = ? WHERE token_hash = ?")
@@ -81,16 +81,16 @@ async function createSession(request, env) {
   const tokenHash = await sha256(token);
   const expiresAt = timestamp + 24 * 60 * 60 * 1000;
   await env.DB.prepare(
-    "INSERT INTO sessions(token_hash, username, client_version, ip_hash, last_seen, expires_at, last_message_at) VALUES (?, ?, ?, ?, ?, ?, 0)"
+    "INSERT INTO sessions(token_hash, username, client_version, ip_hash, last_seen, expires_at, last_message_at, role) VALUES (?, ?, ?, ?, ?, ?, 0, 'USER')"
   ).bind(tokenHash, username, clientVersion, ipHash, timestamp, expiresAt).run();
-  return json({ token, username, expiresAt }, 201);
+  return json({ token, username, role: "USER", expiresAt }, 201);
 }
 
 async function getMessages(request, env, session) {
   const url = new URL(request.url);
   const after = Math.max(0, Number.parseInt(url.searchParams.get("after") || "0", 10) || 0);
   const result = await env.DB.prepare(
-    "SELECT id, author, content, timestamp FROM messages WHERE id > ? ORDER BY id ASC LIMIT 100"
+    "SELECT id, author, content, timestamp, role FROM messages WHERE id > ? ORDER BY id ASC LIMIT 100"
   ).bind(after).all();
   return json(result.results || []);
 }
@@ -114,18 +114,41 @@ async function postMessage(request, env, session) {
   }
 
   const insert = await env.DB.prepare(
-    "INSERT INTO messages(author, content, timestamp) VALUES (?, ?, ?)"
-  ).bind(session.username, content, timestamp).run();
+    "INSERT INTO messages(author, content, timestamp, role) VALUES (?, ?, ?, ?)"
+  ).bind(session.username, content, timestamp, session.role || "USER").run();
   const id = Number(insert.meta?.last_row_id || 0);
-  return json({ id, author: session.username, content, timestamp }, 201);
+  return json({ id, author: session.username, content, timestamp, role: session.role || "USER" }, 201);
 }
 
 async function getOnline(env) {
   const cutoff = now() - 60_000;
   const result = await env.DB.prepare(
-    "SELECT username, MAX(last_seen) AS lastSeen FROM sessions WHERE last_seen >= ? AND expires_at > ? GROUP BY username ORDER BY username COLLATE NOCASE LIMIT 200"
+    "SELECT username, role, MAX(last_seen) AS lastSeen FROM sessions WHERE last_seen >= ? AND expires_at > ? GROUP BY username, role ORDER BY role DESC, username COLLATE NOCASE LIMIT 200"
   ).bind(cutoff, now()).all();
   return json(result.results || []);
+}
+
+async function authenticateDeveloper(request, env, session) {
+  let data;
+  try {
+    data = await body(request);
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+  const provided = typeof data.key === "string" ? data.key : "";
+  if (!env.DEV_KEY || provided.length < 16 || provided.length > 256) {
+    return json({ error: "Invalid developer key" }, 403);
+  }
+  const providedHash = await sha256(provided);
+  const expectedHash = await sha256(env.DEV_KEY);
+  let difference = providedHash.length ^ expectedHash.length;
+  for (let i = 0; i < Math.min(providedHash.length, expectedHash.length); i++) {
+    difference |= providedHash.charCodeAt(i) ^ expectedHash.charCodeAt(i);
+  }
+  if (difference !== 0) return json({ error: "Invalid developer key" }, 403);
+  await env.DB.prepare("UPDATE sessions SET role = 'DEV' WHERE token_hash = ?")
+    .bind(session.token_hash).run();
+  return json({ ok: true, role: "DEV" });
 }
 
 async function cleanup(env) {
@@ -154,6 +177,9 @@ export default {
       const session = await authenticate(request, env);
       if (!session) return json({ error: "Unauthorized" }, 401);
 
+      if (url.pathname === "/v1/dev/auth" && request.method === "POST") {
+        return authenticateDeveloper(request, env, session);
+      }
       if (url.pathname === "/v1/messages" && request.method === "GET") {
         return getMessages(request, env, session);
       }
