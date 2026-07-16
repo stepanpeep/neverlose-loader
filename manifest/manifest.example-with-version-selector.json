@@ -1,0 +1,150 @@
+{
+  "launcher": {
+    "minimumVersion": "1.0.0",
+    "branding": {
+      "title": "Neverlose Loader",
+      "accent": "#178BFF"
+    }
+  },
+  "maintenance": {
+    "enabled": false,
+    "message": "Client is under maintenance. Please try again later."
+  },
+  "settings": {
+    "defaultRamMb": 4096,
+    "defaultInstallDir": "C:/NeverloseClient",
+    "defaultLanguage": "ru"
+  },
+  "modules": [
+    {
+      "id": "fabric-api",
+      "name": "Fabric API",
+      "description": "Required Fabric runtime API",
+      "artifacts": [],
+      "modrinthProject": "fabric-api"
+    },
+    {
+      "id": "iris",
+      "name": "Iris",
+      "description": "Modern shader support",
+      "artifacts": [],
+      "modrinthProject": "iris"
+    },
+    {
+      "id": "sodium",
+      "name": "Sodium",
+      "description": "High-performance renderer",
+      "artifacts": [],
+      "modrinthProject": "sodium"
+    },
+    {
+      "id": "lithium",
+      "name": "Lithium",
+      "description": "Game logic optimization",
+      "artifacts": [],
+      "modrinthProject": "lithium"
+    },
+    {
+      "id": "mod-menu",
+      "name": "Mod Menu",
+      "description": "In-game Fabric mod browser",
+      "artifacts": [],
+      "modrinthProject": "modmenu"
+    },
+    {
+      "id": "ferrite-core",
+      "name": "FerriteCore",
+      "description": "Lower memory usage",
+      "artifacts": [],
+      "modrinthProject": "ferrite-core"
+    },
+    {
+      "id": "immediatelyfast",
+      "name": "ImmediatelyFast",
+      "description": "Faster immediate rendering",
+      "artifacts": [],
+      "modrinthProject": "immediatelyfast"
+    },
+    {
+      "id": "entityculling",
+      "name": "Entity Culling",
+      "description": "Skips hidden entity rendering",
+      "artifacts": [],
+      "modrinthProject": "entityculling"
+    }
+  ],
+  "presets": [
+    {
+      "id": "clean",
+      "name": "Clean",
+      "modules": [
+        "fabric-api",
+        "mod-menu"
+      ]
+    },
+    {
+      "id": "visual",
+      "name": "Visual",
+      "modules": [
+        "fabric-api",
+        "iris",
+        "sodium",
+        "immediatelyfast",
+        "entityculling",
+        "mod-menu"
+      ]
+    },
+    {
+      "id": "performance",
+      "name": "Performance",
+      "modules": [
+        "fabric-api",
+        "sodium",
+        "lithium",
+        "ferrite-core",
+        "immediatelyfast",
+        "entityculling"
+      ]
+    },
+    {
+      "id": "full",
+      "name": "Full",
+      "modules": [
+        "fabric-api",
+        "iris",
+        "sodium",
+        "lithium",
+        "mod-menu",
+        "ferrite-core",
+        "immediatelyfast",
+        "entityculling"
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "id": "1.21",
+      "name": "Minecraft 1.21",
+      "minecraftVersion": "1.21",
+      "loader": "fabric",
+      "inheritsPreset": "performance",
+      "artifacts": [],
+      "mainClass": "",
+      "arguments": [],
+      "available": true,
+      "badge": "Stable"
+    },
+    {
+      "id": "1.21.4",
+      "name": "Minecraft 1.21.4",
+      "minecraftVersion": "1.21.4",
+      "loader": "fabric",
+      "inheritsPreset": "performance",
+      "available": false,
+      "badge": "Soon",
+      "artifacts": [],
+      "mainClass": "",
+      "arguments": []
+    }
+  ]
+}

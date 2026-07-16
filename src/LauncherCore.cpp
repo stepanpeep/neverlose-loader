@@ -62,7 +62,12 @@ bool LauncherCore::refreshManifest() {
         status_ = L"Official configuration is unavailable: " + error; return false;
     }
     manifest_ = std::move(next);
-    if (selectedVersionIndex() >= manifest_.versions.size()) settings_.selectedVersion = manifest_.versions.front().id;
+    size_t versionIndex = selectedVersionIndex();
+    if (versionIndex >= manifest_.versions.size() || !manifest_.versions[versionIndex].available) {
+        auto available = std::find_if(manifest_.versions.begin(), manifest_.versions.end(), [](const VersionEntry& entry) { return entry.available; });
+        if (available == manifest_.versions.end()) { status_ = L"Manifest contains no available versions"; return false; }
+        settings_.selectedVersion = available->id;
+    }
     if (manifest_.presets.empty()) settings_.selectedPreset.clear();
     else if (selectedPresetIndex() >= manifest_.presets.size()) settings_.selectedPreset = manifest_.presets.front().id;
     applyPreset();
@@ -86,10 +91,14 @@ size_t LauncherCore::selectedPresetIndex() const {
     return manifest_.presets.size();
 }
 const VersionEntry* LauncherCore::selectedVersion() const {
-    auto index = selectedVersionIndex(); return index < manifest_.versions.size() ? &manifest_.versions[index] : nullptr;
+    auto index = selectedVersionIndex();
+    return index < manifest_.versions.size() && manifest_.versions[index].available ? &manifest_.versions[index] : nullptr;
 }
 void LauncherCore::selectVersion(size_t index) {
-    if (index < manifest_.versions.size()) { settings_.selectedVersion = manifest_.versions[index].id; status_ = L"Version selected: " + manifest_.versions[index].name; }
+    if (index >= manifest_.versions.size()) return;
+    if (!manifest_.versions[index].available) { status_ = L"This version is coming soon"; return; }
+    settings_.selectedVersion = manifest_.versions[index].id;
+    status_ = L"Version selected: " + manifest_.versions[index].name;
 }
 void LauncherCore::selectPreset(size_t index) {
     if (index < manifest_.presets.size()) { settings_.selectedPreset = manifest_.presets[index].id; applyPreset(); status_ = L"Preset applied: " + manifest_.presets[index].name; }

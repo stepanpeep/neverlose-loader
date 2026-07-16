@@ -30,6 +30,8 @@ struct VersionEntry {
     std::wstring loader;
     std::wstring inheritsPreset;
     std::wstring mainClass;
+    bool available = true;
+    std::wstring badge;
     std::vector<std::wstring> arguments;
     std::vector<Artifact> artifacts;
 };

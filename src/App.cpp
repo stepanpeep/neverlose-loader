@@ -123,16 +123,19 @@ LRESULT App::handle(UINT msg, WPARAM w, LPARAM l) {
         case WM_PAINT: render(); return 0;
         case WM_TIMER: {
             time_ += .016f;
-            transition_ += (1.f - transition_) * .14f;
-            introAnim_ += (1.f - introAnim_) * .10f;
+            transition_ = std::clamp(transition_ + (1.f - transition_) * .14f, 0.f, 1.f);
+            introAnim_ = std::clamp(introAnim_ + (1.f - introAnim_) * .10f, 0.f, 1.f);
+            versionDropdownAnim_ = std::clamp(versionDropdownAnim_ + ((versionDropdownOpen_ ? 1.f : 0.f) - versionDropdownAnim_) * .18f, 0.f, 1.f);
             moduleScroll_ += (moduleScrollTarget_ - moduleScroll_) * .16f;
             if (std::abs(moduleScrollTarget_ - moduleScroll_) < .05f) moduleScroll_ = moduleScrollTarget_;
-            onboardingAnim_ += ((firstRun_ ? 1.f : 0.f) - onboardingAnim_) * .13f;
+            onboardingAnim_ = std::clamp(onboardingAnim_ + ((firstRun_ ? 1.f : 0.f) - onboardingAnim_) * .13f, 0.f, 1.f);
             if (transition_ > .998f) transition_ = 1.f;
             float targetRam = static_cast<float>(core_.settings().ramMb);
             ramVelocity_ += (targetRam - ramVisualMb_) * .045f;
             ramVelocity_ *= ramDragging_ ? .76f : .70f;
-            ramVisualMb_ = std::clamp(ramVisualMb_ + ramVelocity_, 2048.f, 16384.f);
+            float nextRam = ramVisualMb_ + ramVelocity_;
+            if (nextRam <= 2048.f || nextRam >= 16384.f) ramVelocity_ = 0.f;
+            ramVisualMb_ = std::clamp(nextRam, 2048.f, 16384.f);
             if (!ramDragging_ && std::abs(targetRam - ramVisualMb_) < .2f && std::abs(ramVelocity_) < .2f) {
                 ramVisualMb_ = targetRam; ramVelocity_ = 0.f;
             }
@@ -174,7 +177,14 @@ LRESULT App::handle(UINT msg, WPARAM w, LPARAM l) {
             return 0;
         }
         case WM_KEYDOWN:
-            if (w == VK_ESCAPE) { if (busy_) cancel_ = true; else DestroyWindow(hwnd_); }
+            if (w == VK_ESCAPE) {
+                if (versionDropdownOpen_) versionDropdownOpen_ = false;
+                else if (busy_) cancel_ = true;
+                else DestroyWindow(hwnd_);
+            }
+            return 0;
+        case WM_KILLFOCUS:
+            versionDropdownOpen_ = false;
             return 0;
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLOREDIT: {
@@ -366,10 +376,18 @@ void App::renderHome(Rect area) {
 
     drawText(L"SELECTED BUILD", {hero.x + 25, hero.y + 105, 160, 18}, color(0x526A94), smallFont_.Get());
     Rect build{hero.x + 24, hero.y + 130, hero.w - 48, 58};
-    roundRect(build, 13, color(0x0E1A33), 1, color(0x2B416C, .72f));
-    drawText(L"Minecraft 1.21", {build.x + 18, build.y, build.w - 120, build.h}, color(0xE8F0FF), buttonFont_.Get());
-    roundRect({build.x + build.w - 94, build.y + 18, 72, 23}, 11.5f, color(0x14386F), 1, color(0x347DFF, .38f));
-    drawText(L"FABRIC", {build.x + build.w - 94, build.y + 18, 72, 23}, color(0x72A8FF), smallFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    bool buildHover=build.contains(hoverX_,hoverY_);
+    roundRect(build, 13, buildHover?color(0x11203D):color(0x0E1A33), 1, color(0x315083, .72f+.18f*(buildHover?1.f:versionDropdownAnim_)));
+    size_t selectedIndex=core_.selectedVersionIndex();
+    std::wstring selectedName=selectedIndex<core_.manifest().versions.size()?core_.manifest().versions[selectedIndex].name:L"Minecraft 1.21";
+    drawText(selectedName, {build.x + 18, build.y, build.w - 150, build.h}, color(0xE8F0FF), buttonFont_.Get());
+    roundRect({build.x + build.w - 116, build.y + 18, 72, 23}, 11.5f, color(0x14386F), 1, color(0x347DFF, .38f));
+    drawText(L"FABRIC", {build.x + build.w - 116, build.y + 18, 72, 23}, color(0x72A8FF), smallFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    float chevron=versionDropdownAnim_;
+    float ccx=build.x+build.w-23,ccy=build.y+build.h/2;
+    line(ccx-5,ccy-3+6*chevron,ccx,ccy+2-4*chevron,color(0x7F9CC8),1.6f);
+    line(ccx,ccy+2-4*chevron,ccx+5,ccy-3+6*chevron,color(0x7F9CC8),1.6f);
+    addHit(build,HitType::VersionDropdown);
 
     Rect launch{hero.x + 24, hero.y + hero.h - 66, hero.w - 48, 42};
     bool launchHover = launch.contains(hoverX_, hoverY_);
@@ -412,6 +430,28 @@ void App::renderHome(Rect area) {
         drawText(L"Preparing client files",{progress.x+18,progress.y+5,230,24},color(0xC9D8F3),buttonFont_.Get());
         roundRect({progress.x+18,progress.y+38,progress.w-36,5},2.5f,color(0x182843));
         roundRect({progress.x+18,progress.y+38,(progress.w-36)*progress_.load(),5},2.5f,color(0x397FFF));
+    }
+
+    if(versionDropdownAnim_>.01f){
+        size_t count=std::min<size_t>(8,core_.manifest().versions.size());
+        float panelY=build.y+build.h+7,panelH=(12.f+count*44.f)*versionDropdownAnim_;
+        addHit({0,48,width_,height_-48},HitType::DismissDropdown);
+        addHit(build,HitType::VersionDropdown);
+        ComPtr<ID2D1Layer> dropdownLayer;target_->CreateLayer(dropdownLayer.GetAddressOf());
+        auto dropdownParams=D2D1::LayerParameters(D2D1::RectF(build.x,panelY,build.x+build.w,panelY+panelH));target_->PushLayer(dropdownParams,dropdownLayer.Get());
+        roundRect({build.x,panelY,build.w,12.f+count*44.f},13,color(0x091326,.995f),1,color(0x315083,.92f));
+        for(size_t i=0;i<count;++i){
+            const auto& version=core_.manifest().versions[i];Rect row{build.x+6,panelY+6+i*44.f,build.w-12,38};
+            bool hover=row.contains(hoverX_,hoverY_);versionItemAnim_[i]=std::clamp(versionItemAnim_[i]+((hover?1.f:0.f)-versionItemAnim_[i])*.16f,0.f,1.f);
+            bool selected=i==selectedIndex;
+            if(hover||selected)roundRect(row,9,selected?color(0x17356E,.92f):color(0x122445,.72f*versionItemAnim_[i]),1,selected?color(0x3F83FF,.48f):color(0x345686,.28f*versionItemAnim_[i]));
+            drawText(version.name,{row.x+13,row.y,row.w-115,row.h},version.available?color(0xE4EDFF):color(0x657793),buttonFont_.Get());
+            std::wstring badge=version.available?(selected?L"SELECTED":L"READY"):(version.badge.empty()?L"SOON":version.badge);
+            roundRect({row.x+row.w-91,row.y+8,77,22},11,version.available?color(0x14386F):color(0x191F2D),1,version.available?color(0x347DFF,.34f):color(0x4D5668,.45f));
+            drawText(badge,{row.x+row.w-91,row.y+8,77,22},version.available?color(0x72A8FF):color(0x7B8494),smallFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
+            if(versionDropdownAnim_>.82f)addHit(row,HitType::VersionItem,i);
+        }
+        target_->PopLayer();
     }
 }
 
@@ -611,10 +651,11 @@ void App::click(float x, float y) {
         if (!hit.rect.contains(x, y)) continue;
         if (firstRun_ && hit.type != HitType::Continue && hit.type != HitType::Avatar && hit.type != HitType::Close) return;
         if (busy_ && hit.type != HitType::Launch && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
+        if (transition_ < .72f && hit.type != HitType::Nav && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
         switch (hit.type) {
             case HitType::Close: DestroyWindow(hwnd_); break;
             case HitType::Minimize: ShowWindow(hwnd_, SW_MINIMIZE); break;
-            case HitType::Nav: page_ = static_cast<int>(hit.index); transition_ = 0; updateEditVisibility(); break;
+            case HitType::Nav: versionDropdownOpen_=false; page_ = static_cast<int>(hit.index); transition_ = 0; updateEditVisibility(); break;
             case HitType::Browse: browseFolder(); break;
             case HitType::Avatar: chooseAvatar(); break;
             case HitType::Continue:
@@ -623,12 +664,22 @@ void App::click(float x, float y) {
                 break;
             case HitType::Preset: core_.selectPreset(hit.index); break;
             case HitType::Module: core_.toggleModule(hit.index); break;
+            case HitType::VersionDropdown:
+                versionDropdownOpen_=!versionDropdownOpen_;
+                break;
+            case HitType::VersionItem:
+                if(hit.index<core_.manifest().versions.size()&&core_.manifest().versions[hit.index].available){core_.selectVersion(hit.index);versionDropdownOpen_=false;}
+                else if(hit.index<core_.manifest().versions.size())core_.setStatus(core_.manifest().versions[hit.index].name+L" is coming soon");
+                break;
+            case HitType::DismissDropdown:
+                versionDropdownOpen_=false;
+                break;
             case HitType::Ram:
                 ramDragging_ = true;
                 SetCapture(hwnd_);
                 setMemoryFromX(x);
                 break;
-            case HitType::Launch: if (busy_) cancel_ = true; else beginLaunch(); break;
+            case HitType::Launch: versionDropdownOpen_=false; if (busy_) cancel_ = true; else beginLaunch(); break;
             default: break;
         }
         InvalidateRect(hwnd_, nullptr, FALSE);

@@ -21,7 +21,7 @@ private:
     };
 
     enum class Icon { Logo, Home, Grid, Settings, Folder, Refresh, Play, User, Check, Download, Memory, Chevron, Close, Minimize };
-    enum class HitType { None, Nav, Browse, Avatar, Continue, Refresh, Launch, Preset, Module, Ram, Close, Minimize };
+    enum class HitType { None, Nav, Browse, Avatar, Continue, Refresh, Launch, Preset, Module, Ram, VersionDropdown, VersionItem, DismissDropdown, Close, Minimize };
     struct Hit { Rect rect; HitType type; size_t index = 0; };
 
     static LRESULT CALLBACK wndProc(HWND, UINT, WPARAM, LPARAM);
@@ -79,11 +79,14 @@ private:
     float moduleScroll_ = 0;
     float moduleScrollTarget_ = 0;
     float launchAnim_ = 0;
+    float versionDropdownAnim_ = 0;
+    float versionItemAnim_[8]{};
     float ramVisualMb_ = 4096.f;
     float ramVelocity_ = 0.f;
     int page_ = 0;
     bool firstRun_ = true;
     bool ramDragging_ = false;
+    bool versionDropdownOpen_ = false;
 
     LauncherCore core_;
     std::vector<Hit> hits_;
