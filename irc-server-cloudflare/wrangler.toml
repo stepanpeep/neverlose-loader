@@ -1,0 +1,8 @@
+name = "neverlose-irc"
+main = "src/worker.js"
+compatibility_date = "2026-07-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "neverlose-irc"
+database_id = "ada771c3-adbf-4ac0-af94-5dfb5fb4a281"

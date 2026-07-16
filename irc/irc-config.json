@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "apiUrl": "https://neverlose-irc.stepstepikov.workers.dev/v1",
+  "message": "IRC is temporarily unavailable"
+}
