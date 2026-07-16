@@ -128,7 +128,13 @@
       "minecraftVersion": "1.21",
       "loader": "fabric",
       "inheritsPreset": "performance",
-      "artifacts": [],
+      "artifacts": [
+        {
+          "path": "mods/NeverloseClient-1.0.0.jar",
+          "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.0/NeverloseClient.jar",
+          "sha256": "5571dd474d6387724015c12d60024629a71d9dd6ea39e4bd234eed498d11ff77"
+        }
+      ],
       "mainClass": "",
       "arguments": []
     }
