@@ -2,8 +2,10 @@ name: Build Neverlose Loader
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches:
+      - main
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
 
@@ -13,24 +15,36 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
+
       - name: Configure x64 Release
         run: cmake -S . -B build -A x64 -DNL_WARNINGS_AS_ERRORS=ON
+
       - name: Build
         run: cmake --build build --config Release --parallel
+
       - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item build/Release/NeverloseLoader.exe dist/
-              New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item assets/neverlose-loader-logo-1024.png dist/assets/neverlose-loader-logo-1024.png
-          Compress-Archive -Path dist/* -DestinationPath NeverloseLoader-windows-x64.zip
-      - uses: actions/upload-artifact@v4
+          Remove-Item dist -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item NeverloseLoader-windows-x64.zip -Force -ErrorAction SilentlyContinue
+
+          New-Item -ItemType Directory -Force dist/assets | Out-Null
+
+          Copy-Item -LiteralPath "build/Release/NeverloseLoader.exe" -Destination "dist/NeverloseLoader.exe"
+          Copy-Item -LiteralPath "assets/neverlose-loader-logo-1024.png" -Destination "dist/assets/neverlose-loader-logo-1024.png"
+
+          Compress-Archive -Path "dist/*" -DestinationPath "NeverloseLoader-windows-x64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: NeverloseLoader-windows-x64
           path: NeverloseLoader-windows-x64.zip
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
