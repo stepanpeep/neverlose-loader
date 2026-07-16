@@ -130,8 +130,8 @@
       "inheritsPreset": "performance",
       "artifacts": [
         {
-          "path": "mods/NeverloseClient-1.0.0.jar",
-          "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.0/NeverloseClient.jar",
+          "path": "mods/FabricAddon 1.21+.jar",
+          "url": "https://drive.google.com/file/d/1dZEvICnrpgS-MsbZ1_NMaNXdefxIkWLC/view?usp=drive_link",
           "sha256": "5571dd474d6387724015c12d60024629a71d9dd6ea39e4bd234eed498d11ff77"
         }
       ],
