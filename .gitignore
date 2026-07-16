@@ -1,0 +1,10 @@
+.vs/
+build/
+out/
+cmake-build-*/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.exe
+*.zip

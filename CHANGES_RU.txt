@@ -1,0 +1,30 @@
+Neverlose Loader — полная реализация
+
+Backend:
+- Официальный Minecraft 1.21 через Mojang version_manifest_v2.
+- Client JAR, библиотеки, assets, asset index, log config и Windows natives.
+- Fabric Loader через Fabric Meta API и проверяемые Maven-библиотеки.
+- Fabric API, Iris, Sodium, Lithium через Modrinth API.
+- Фильтрация Modrinth по Minecraft 1.21 + Fabric.
+- Проверка Mojang/Fabric по SHA-1, GitHub artifacts по SHA-256, Modrinth по SHA-512.
+- Повторная проверка локальных файлов и загрузка только повреждённых/отсутствующих.
+- Сборка classpath, распаковка natives и запуск KnotClient.
+- Поиск Java 21 в runtime/bin, JAVA_HOME, PATH и официальном Minecraft runtime.
+
+Профиль:
+- Onboarding при первом запуске.
+- Ник Windows как стартовое предложение.
+- Ник сохраняется и передаётся Minecraft.
+- Выбор PNG/JPG/BMP аватара.
+- Круглая маска аватара через Direct2D.
+- Новый оригинальный логотип из букв NL.
+
+UI:
+- Анимированный фон, onboarding, glow, online pulse, avatar pulse и progress.
+- Отмена установки через Esc.
+- Обновлённое preview с NL.
+
+GitHub:
+- GITHUB_SETUP_RU.md с полной инструкцией.
+- Автоматический GitHub Actions build под Windows x64.
+- Автоматическая публикация ZIP в Release по тегам v*.

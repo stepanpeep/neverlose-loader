@@ -1,0 +1,23 @@
+Исправление ошибок LauncherCore / GameInstaller
+
+Причина ошибок была в устаревшем src/LauncherCore.h: LauncherCore.cpp уже использовал GameInstaller и ModrinthService, но заголовок не содержал их include, поля и объявление offlineUuid.
+
+После замены проекта обязательно удали старую папку build, чтобы Visual Studio/CMake не использовали кэшированные заголовки:
+
+PowerShell:
+  Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
+  cmake -S . -B build -A x64
+  cmake --build build --config Release --clean-first
+
+Или CMD:
+  rmdir /s /q build
+  cmake -S . -B build -A x64
+  cmake --build build --config Release --clean-first
+
+Проверено в исходниках:
+- GameInstaller.h подключён в LauncherCore.h.
+- ModrinthService.h подключён в LauncherCore.h.
+- offlineUuid объявлен и определён.
+- gameInstaller_ объявлен.
+- modrinthService_ объявлен.
+- GameInstaller.cpp и ModrinthService.cpp добавлены в CMakeLists.txt.

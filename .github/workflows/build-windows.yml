@@ -1,0 +1,40 @@
+name: Build Neverlose Loader
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure x64 Release
+        run: cmake -S . -B build -A x64 -DNL_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/manifest | Out-Null
+          Copy-Item build/Release/NeverloseLoader.exe dist/
+          Copy-Item manifest/manifest.example.json dist/manifest/manifest.example.json
+          New-Item -ItemType Directory -Force dist/assets | Out-Null
+          Copy-Item assets/neverlose-loader-logo-1024.png dist/assets/neverlose-loader-logo-1024.png
+          Compress-Archive -Path dist/* -DestinationPath NeverloseLoader-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeverloseLoader-windows-x64
+          path: NeverloseLoader-windows-x64.zip
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: NeverloseLoader-windows-x64.zip
+          generate_release_notes: true
