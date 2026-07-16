@@ -22,6 +22,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item build/Release/NeverloseLoader.exe dist/
               New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item assets/neverlose-loader-logo-1024.png dist/assets/neverlose-loader-logo-1024.png
