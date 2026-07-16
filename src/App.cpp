@@ -80,8 +80,7 @@ bool App::createWindow(HINSTANCE instance, int show) {
     DWORD editStyle = WS_CHILD | WS_CLIPSIBLINGS | ES_AUTOHSCROLL | WS_TABSTOP;
     nickEdit_ = CreateWindowExW(0, L"EDIT", L"", editStyle, 0, 0, 100, 30, hwnd_, reinterpret_cast<HMENU>(101), instance, nullptr);
     pathEdit_ = CreateWindowExW(0, L"EDIT", L"", editStyle, 0, 0, 100, 30, hwnd_, reinterpret_cast<HMENU>(102), instance, nullptr);
-    manifestEdit_ = CreateWindowExW(0, L"EDIT", L"", editStyle, 0, 0, 100, 30, hwnd_, reinterpret_cast<HMENU>(103), instance, nullptr);
-    setEditFont(nickEdit_); setEditFont(pathEdit_); setEditFont(manifestEdit_);
+    setEditFont(nickEdit_); setEditFont(pathEdit_);
 
     SetTimer(hwnd_, 1, 16, nullptr);
     ShowWindow(hwnd_, show);
@@ -482,9 +481,11 @@ void App::renderSettings(Rect area) {
     drawText(L"Game directory",{panel.x+24,panel.y+157,175,24},color(0xA9B9D3),bodyFont_.Get());
     roundRect({panel.x+210,panel.y+151,panel.w-286,38},10,color(0x0A1020),1,color(0x2B416B,.72f));
     Rect browse{panel.x+panel.w-60,panel.y+151,36,38};bool browseHover=browse.contains(hoverX_,hoverY_);actionAnim_[0]+=((browseHover?1.f:0.f)-actionAnim_[0])*.17f;roundRect(browse,10,browseHover?color(0x17376E):color(0x101C34),1,color(0x3C6DB5,.55f+.3f*actionAnim_[0]));drawIcon(Icon::Folder,{browse.x,browse.y-actionAnim_[0],browse.w,browse.h},color(0x76A6F7));addHit(browse,HitType::Browse);
-    drawText(L"Manifest URL",{panel.x+24,panel.y+207,175,24},color(0xA9B9D3),bodyFont_.Get());
-    roundRect({panel.x+210,panel.y+201,panel.w-286,38},10,color(0x0A1020),1,color(0x2B416B,.72f));
-    Rect refresh{panel.x+panel.w-60,panel.y+201,36,38};bool refreshHover=refresh.contains(hoverX_,hoverY_);actionAnim_[1]+=((refreshHover?1.f:0.f)-actionAnim_[1])*.17f;roundRect(refresh,10,refreshHover?color(0x17376E):color(0x101C34),1,color(0x3C6DB5,.55f+.3f*actionAnim_[1]));drawIcon(Icon::Refresh,{refresh.x,refresh.y-actionAnim_[1],refresh.w,refresh.h},color(0x76A6F7));addHit(refresh,HitType::Refresh);
+    drawText(L"CONFIGURATION",{panel.x+24,panel.y+207,175,18},color(0x526A94),smallFont_.Get());
+    roundRect({panel.x+210,panel.y+197,panel.w-234,40},10,color(0x0A1020),1,color(0x2B416B,.72f));
+    roundRect({panel.x+224,panel.y+208,18,18},9,color(0x13316A),1,color(0x4C8DFF,.54f));
+    drawIcon(Icon::Check,{panel.x+224,panel.y+208,18,18},color(0x83B2FF),1.3f);
+    drawText(L"Official GitHub configuration",{panel.x+252,panel.y+199,panel.w-276,36},color(0xA9C4F5),smallFont_.Get());
     line(panel.x+24,panel.y+258,panel.x+panel.w-24,panel.y+258,color(0x223452,.65f),1);
     drawText(L"RUNTIME MEMORY",{panel.x+24,panel.y+275,180,18},color(0x526A94),smallFont_.Get());
     drawText(L"Memory allocation",{panel.x+24,panel.y+310,175,24},color(0xA9B9D3),bodyFont_.Get());
@@ -620,7 +621,6 @@ void App::click(float x, float y) {
                 syncEditsToCore();
                 if (!core_.settings().nickname.empty()) { core_.settings().firstRunComplete = true; core_.saveSettings(); firstRun_ = false; updateEditVisibility(); }
                 break;
-            case HitType::Refresh: syncEditsToCore(); core_.refreshManifest(); syncCoreToEdits(); break;
             case HitType::Preset: core_.selectPreset(hit.index); break;
             case HitType::Module: core_.toggleModule(hit.index); break;
             case HitType::Ram:
@@ -646,19 +646,16 @@ void App::setMemoryFromX(float x) {
 void App::syncEditsToCore() {
     core_.settings().nickname = editText(nickEdit_);
     core_.settings().installDir = editText(pathEdit_);
-    core_.settings().manifestUrl = editText(manifestEdit_);
 }
 void App::syncCoreToEdits() {
     SetWindowTextW(nickEdit_, core_.settings().nickname.c_str());
     SetWindowTextW(pathEdit_, core_.settings().installDir.c_str());
-    SetWindowTextW(manifestEdit_, core_.settings().manifestUrl.c_str());
 }
 
 void App::updateEditVisibility() {
     bool settings = page_ == 2 && !firstRun_;
     ShowWindow(nickEdit_, (settings || firstRun_) ? SW_SHOW : SW_HIDE);
     ShowWindow(pathEdit_, settings ? SW_SHOW : SW_HIDE);
-    ShowWindow(manifestEdit_, settings ? SW_SHOW : SW_HIDE);
     if (firstRun_) {
         SetWindowPos(nickEdit_, HWND_TOP, static_cast<int>(width_/2 - 147), static_cast<int>(height_/2 + 103), 294, 32, SWP_SHOWWINDOW);
         return;
@@ -667,7 +664,6 @@ void App::updateEditVisibility() {
     float panelX = 246, panelY = 148, panelW = width_ - 276;
     SetWindowPos(nickEdit_, nullptr, static_cast<int>(panelX + 220), static_cast<int>(panelY + 53), static_cast<int>(panelW - 254), 28, SWP_NOZORDER);
     SetWindowPos(pathEdit_, nullptr, static_cast<int>(panelX + 220), static_cast<int>(panelY + 156), static_cast<int>(panelW - 310), 28, SWP_NOZORDER);
-    SetWindowPos(manifestEdit_, nullptr, static_cast<int>(panelX + 220), static_cast<int>(panelY + 206), static_cast<int>(panelW - 310), 28, SWP_NOZORDER);
 }
 
 void App::browseFolder() {

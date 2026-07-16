@@ -60,7 +60,6 @@ private:
     HWND hwnd_{};
     HWND nickEdit_{};
     HWND pathEdit_{};
-    HWND manifestEdit_{};
     UINT dpi_ = 96;
     float width_ = 1080;
     float height_ = 680;

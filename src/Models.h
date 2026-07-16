@@ -49,7 +49,7 @@ struct LauncherSettings {
     std::wstring avatarPath;
     std::wstring language = L"ru";
     std::wstring installDir = L"C:\\NeverloseClient";
-    std::wstring manifestUrl = L"manifest\\manifest.example.json";
+    std::wstring manifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
     std::wstring selectedVersion = L"1.21";
     std::wstring selectedPreset;
     int ramMb = 4096;

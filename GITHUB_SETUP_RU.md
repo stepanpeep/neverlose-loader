@@ -41,7 +41,7 @@ git init
 git branch -M main
 git add .
 git commit -m "Initial Neverlose Loader"
-git remote add origin https://github.com/stepanpeep/neverlose-loader.git
+git remote add origin https://github.com/USERNAME/neverlose-loader.git
 git push -u origin main
 ```
 

@@ -72,3 +72,7 @@ build\Release\NeverloseLoader.exe
 В локальный manifest добавлены 8 Fabric-компонентов: Fabric API, Iris, Sodium, Lithium, Mod Menu, FerriteCore, ImmediatelyFast и Entity Culling. Каждый компонент разрешается через Modrinth API по `modrinthProject`, скачивается с сервера и проверяется SHA-512. Удалённый manifest может добавлять новые компоненты без пересборки EXE; список поддерживает плавную прокрутку.
 
 Motion-система включает fade страниц и первого появления, два фоновых glow-слоя, hover-переходы навигации/профиля/оконных кнопок/пресетов/карточек, пружинные toggle-переключатели, lift иконок, shimmer запуска, spinner и progress, анимированные кнопки Settings, тяжёлый RAM slider и инерционную прокрутку списка. Геометрия hitbox остаётся неподвижной.
+
+## Official manifest lock
+
+The production launcher uses one fixed configuration source: `https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json`. The address is compiled into the executable and is not editable in Settings or persisted in the local INI. Only GitHub users with write access to `stepanpeep/neverlose-loader` can update the official manifest. End users can read the public JSON, but cannot change the configuration delivered by this EXE.

@@ -12,6 +12,7 @@
 
 
 namespace {
+constexpr const wchar_t* kOfficialManifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
 std::wstring canonicalModPath(const std::wstring& value) {
     std::filesystem::path p(value);
     if (p.is_absolute() || p.empty()) return {};
@@ -49,15 +50,16 @@ LauncherCore::LauncherCore() = default;
 
 bool LauncherCore::bootstrap() {
     settings_ = settingsService_.load();
+    settings_.manifestUrl = kOfficialManifestUrl;
     return refreshManifest();
 }
 
 bool LauncherCore::refreshManifest() {
+    // The source is intentionally fixed: only repository writers can change it.
+    settings_.manifestUrl = kOfficialManifestUrl;
     LauncherManifest next; std::wstring error;
-    if (!manifestService_.load(settings_.manifestUrl, next, error)) {
-        if (settings_.manifestUrl.rfind(L"http", 0) != 0 || !manifestService_.load(L"manifest\\manifest.example.json", next, error)) {
-            status_ = error; return false;
-        }
+    if (!manifestService_.load(kOfficialManifestUrl, next, error)) {
+        status_ = L"Official configuration is unavailable: " + error; return false;
     }
     manifest_ = std::move(next);
     if (selectedVersionIndex() >= manifest_.versions.size()) settings_.selectedVersion = manifest_.versions.front().id;
