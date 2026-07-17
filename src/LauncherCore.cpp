@@ -4,8 +4,6 @@
 #include <bcrypt.h>
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <set>
 #include <iomanip>
 #include <iterator>
 #include <sstream>
@@ -13,36 +11,14 @@
 
 namespace {
 constexpr const wchar_t* kOfficialManifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
-std::wstring canonicalModPath(const std::wstring& value) {
-    std::filesystem::path p(value);
-    if (p.is_absolute() || p.empty()) return {};
-    p = p.lexically_normal();
-    auto it = p.begin();
-    if (it == p.end() || _wcsicmp(it->c_str(), L"mods") != 0) return {};
-    ++it;
-    if (it == p.end() || std::next(it) != p.end() || *it == L"..") return {};
-    return (std::filesystem::path(L"mods") / *it).wstring();
-}
-
-bool commitManagedMods(const std::filesystem::path& root, const std::vector<Artifact>& mods, std::wstring& error) {
-    std::set<std::wstring> desired;
-    for (const auto& mod : mods) { auto path = canonicalModPath(mod.path); if (!path.empty()) desired.insert(path); }
-    auto state = root / L"mods" / L".neverlose-managed.txt";
-    std::wifstream input(state);
-    std::wstring line; std::error_code ec;
-    while (std::getline(input, line)) {
-        auto old = canonicalModPath(line);
-        if (!old.empty() && !desired.contains(old)) std::filesystem::remove(root / old, ec);
-        ec.clear();
-    }
-    std::filesystem::create_directories(state.parent_path(), ec);
-    if (ec) { error = L"Cannot create mods directory"; return false; }
-    auto temporary = state; temporary += L".tmp";
-    { std::wofstream output(temporary, std::ios::trunc); if (!output) { error=L"Cannot save managed mods state"; return false; } for (const auto& item : desired) output << item << L'\n'; }
-    std::filesystem::remove(state, ec); ec.clear();
-    std::filesystem::rename(temporary, state, ec);
-    if (ec) { std::filesystem::remove(temporary, ec); error=L"Cannot commit managed mods state"; return false; }
-    return true;
+void removeLegacyManagedState(const std::filesystem::path& root) {
+    // Old builds stored launcher bookkeeping inside mods/. Keep this folder
+    // limited to real mod artifacts: remove legacy state and never recreate it.
+    std::error_code ignored;
+    const auto state = root / L"mods" / L".neverlose-managed.txt";
+    std::filesystem::remove(state, ignored);
+    ignored.clear();
+    std::filesystem::remove(state.wstring() + L".tmp", ignored);
 }
 }
 
@@ -164,9 +140,10 @@ bool LauncherCore::launch(std::atomic_bool& cancelled, ArtifactDownloader::Progr
         mods.insert(mods.end(), module.artifacts.begin(), module.artifacts.end());
     }
     mods.insert(mods.end(), version->artifacts.begin(), version->artifacts.end());
+    removeLegacyManagedState(settings_.installDir);
     if (!mods.empty() && !downloader_.ensure(mods, settings_.installDir, cancelled, progress, status_)) return false;
     if (cancelled) { status_ = L"Cancelled"; return false; }
-    if (!commitManagedMods(settings_.installDir, mods, status_)) return false;
+    removeLegacyManagedState(settings_.installDir);
 
     std::filesystem::path localJava = std::filesystem::path(settings_.installDir) / L"runtime" / L"bin" / L"javaw.exe";
     std::wstring java = std::filesystem::exists(localJava) ? localJava.wstring() : GameInstaller::findJava();
