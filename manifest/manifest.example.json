@@ -7,7 +7,7 @@
     }
   },
   "maintenance": {
-    "enabled": true,
+    "enabled": false,
     "message": "Client is under maintenance. Please try again later."
   },
   "settings": {
@@ -132,7 +132,7 @@
         {
           "path": "mods/fabric-loader 6.17+.jar",
           "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.0/nl.jar",
-          "sha256": "e792140dd7c3483fa00e7480cc556e81be9642155f85e2c65529a4786cc3e458"
+          "sha256": "ae84be50fb30f4d4c44e7278e330b1c72f5ec8d6218be64f5a1df616efbf9125"
         }
       ],
       "mainClass": "",
