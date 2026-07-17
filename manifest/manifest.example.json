@@ -7,7 +7,7 @@
     }
   },
   "maintenance": {
-    "enabled": false,
+    "enabled": true,
     "message": "Client is under maintenance. Please try again later."
   },
   "settings": {
