@@ -72,10 +72,10 @@ async function createSession(request, env) {
   const timestamp = now();
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   const ipHash = await sha256(`${ip}:${env.IP_SALT || "unset"}`);
-  const count = await env.DB.prepare(
-    "SELECT COUNT(*) AS amount FROM sessions WHERE ip_hash = ? AND expires_at > ?"
-  ).bind(ipHash, timestamp).first();
-  if (Number(count?.amount || 0) >= 8) return json({ error: "Too many active sessions" }, 429);
+  // Expired tokens are removed before issuing a new one. Active sessions are not
+  // capped, so reconnects and multiple users behind one IP cannot lock each other out.
+  await env.DB.prepare("DELETE FROM sessions WHERE expires_at <= ?")
+    .bind(timestamp).run();
 
   const token = `${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
   const tokenHash = await sha256(token);
@@ -177,6 +177,10 @@ export default {
       const session = await authenticate(request, env);
       if (!session) return json({ error: "Unauthorized" }, 401);
 
+      if (url.pathname === "/v1/session" && request.method === "DELETE") {
+        await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(session.token_hash).run();
+        return new Response(null, { status: 204 });
+      }
       if (url.pathname === "/v1/dev/auth" && request.method === "POST") {
         return authenticateDeveloper(request, env, session);
       }
