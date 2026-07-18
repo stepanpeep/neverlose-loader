@@ -1,4 +1,4 @@
-SECURITY + CRASH HOTFIX 1.2.1
+SECURITY + CRASH HOTFIX 1.0.3
 
 ИСПРАВЛЕНО
 1. Manifest работает по принципу fail-closed: без свежей онлайн-проверки запуск клиента невозможен.
@@ -23,13 +23,13 @@ SECURITY + CRASH HOTFIX 1.2.1
 
 ВАЖНО ПРО MANIFEST
 Лоадер читает не локальный manifest/manifest.example.json, а файл из ветки main на GitHub:
-https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json
+https://api.github.com/repos/stepanpeep/neverlose-loader/contents/manifest/manifest.example.json?ref=main
 Поэтому изменение локального JSON начнёт действовать только после git add, commit и успешного git push.
 
 ТЕСТЫ
 A. Нормальный режим:
-   launcher.version = 1.2.1
-   launcher.minimumVersion = 1.2.1
+   launcher.version = 1.0.3
+   launcher.minimumVersion = 1.0.3
    maintenance.enabled = false
 
 B. Обязательное обновление:
@@ -44,4 +44,4 @@ C. Maintenance:
 D. Нет сети:
    Лоадер должен показать Connection required. Кэш не должен разрешать Launch.
 
-Перед публикацией вернуть version/minimumVersion в 1.2.1 и maintenance.enabled в false, собрать и проверить Release.
+Перед публикацией вернуть version/minimumVersion в 1.0.3 и maintenance.enabled в false, собрать и проверить Release.
