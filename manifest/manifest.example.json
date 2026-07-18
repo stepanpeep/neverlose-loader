@@ -7,8 +7,8 @@
     }
   },
   "maintenance": {
-    "enabled": false,
-    "message": "Client is under maintenance. Please try again later."
+    "enabled": true,
+    "message": "Клиент на обнове ептеть. Please try again later."
   },
   "settings": {
     "defaultRamMb": 4096,
@@ -132,7 +132,7 @@
         {
           "path": "mods/fabric-loader 6.17+.jar",
           "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.0/nl.jar",
-          "sha256": "86a465d848228a3248872ed78fd902e71f8c1da903ac9fff4890bb75e692d009"
+          "sha256": ""
         }
       ],
       "mainClass": "",
