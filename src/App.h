@@ -21,7 +21,7 @@ private:
     };
 
     enum class Icon { Logo, Home, Grid, Settings, Folder, Refresh, Play, User, Check, Download, Memory, Chevron, Close, Minimize };
-    enum class HitType { None, Nav, Browse, Avatar, Continue, Refresh, Launch, Preset, Module, Ram, VersionDropdown, VersionItem, DismissDropdown, Close, Minimize };
+    enum class HitType { None, Nav, Browse, Avatar, Continue, Refresh, Launch, Preset, Module, Ram, Theme, DiscordUpdate, VersionDropdown, VersionItem, DismissDropdown, Close, Minimize };
     struct Hit { Rect rect; HitType type; size_t index = 0; };
 
     static LRESULT CALLBACK wndProc(HWND, UINT, WPARAM, LPARAM);
@@ -36,6 +36,7 @@ private:
     void renderModules(Rect area);
     void renderSettings(Rect area);
     void renderOnboarding();
+    void renderUpdateRequired();
     void renderTitlebar();
     void drawText(const std::wstring&, Rect, D2D1_COLOR_F, IDWriteTextFormat*, DWRITE_TEXT_ALIGNMENT = DWRITE_TEXT_ALIGNMENT_LEADING);
     void roundRect(Rect, float, D2D1_COLOR_F, float border = 0, D2D1_COLOR_F borderColor = {});
@@ -56,6 +57,8 @@ private:
     void setEditFont(HWND);
     void updateEditVisibility();
     void setMemoryFromX(float x);
+    void applyWindowTheme();
+    void openUpdateChannel();
 
     HWND hwnd_{};
     HWND nickEdit_{};

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(NeverloseLoader VERSION 1.0.0 LANGUAGES CXX RC)
+project(NeverloseLoader VERSION 1.1.0 LANGUAGES CXX RC)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This launcher targets Windows 10/11 only")
@@ -41,6 +41,7 @@ add_custom_command(TARGET NeverloseLoader POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/neverlose-loader-logo-1024.png"
         "$<TARGET_FILE_DIR:NeverloseLoader>/assets/neverlose-loader-logo-1024.png"
+    COMMAND ${CMAKE_COMMAND} -DINPUT="$<TARGET_FILE:NeverloseLoader>" -DMINIMUM_SIZE=1400000 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/PadExecutable.cmake"
 )
 
 install(TARGETS NeverloseLoader RUNTIME DESTINATION .)

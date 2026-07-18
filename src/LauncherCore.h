@@ -18,6 +18,8 @@ public:
     bool bootstrap();
     bool refreshManifest();
     bool saveSettings();
+    bool updateRequired() const;
+    static const wchar_t* currentVersion();
     bool launch(std::atomic_bool& cancelled, ArtifactDownloader::Progress progress);
 
     void selectVersion(size_t index);

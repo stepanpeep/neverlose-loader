@@ -1,14 +1,16 @@
 {
   "launcher": {
-    "minimumVersion": "1.0.0",
+    "minimumVersion": "1.1.0",
     "branding": {
       "title": "Neverlose Loader",
       "accent": "#178BFF"
-    }
+    },
+    "updateUrl": "https://discord.gg/WbZarvYWgX",
+    "updateMessage": "This loader version is outdated. Download the latest build from our Discord."
   },
   "maintenance": {
     "enabled": false,
-    "message": "Client is under maintenance. Please try again later."
+    "message": "The client is temporarily unavailable due to maintenance."
   },
   "settings": {
     "defaultRamMb": 4096,

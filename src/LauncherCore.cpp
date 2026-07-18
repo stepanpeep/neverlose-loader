@@ -11,9 +11,31 @@
 
 namespace {
 constexpr const wchar_t* kOfficialManifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
+constexpr const wchar_t* kLauncherVersion = L"1.1.0";
+
+std::vector<int> versionParts(const std::wstring& value) {
+    std::vector<int> parts;
+    size_t start = 0;
+    while (start <= value.size()) {
+        size_t end = value.find(L'.', start);
+        std::wstring part = value.substr(start, end == std::wstring::npos ? value.size() - start : end - start);
+        try { parts.push_back(part.empty() ? 0 : std::stoi(part)); } catch (...) { parts.push_back(0); }
+        if (end == std::wstring::npos) break;
+        start = end + 1;
+    }
+    parts.resize(std::max<size_t>(3, parts.size()), 0);
+    return parts;
+}
+
+bool versionLess(const std::wstring& left, const std::wstring& right) {
+    auto a = versionParts(left);
+    auto b = versionParts(right);
+    size_t count = std::max(a.size(), b.size());
+    a.resize(count, 0);
+    b.resize(count, 0);
+    return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+}
 void removeLegacyManagedState(const std::filesystem::path& root) {
-    // Old builds stored launcher bookkeeping inside mods/. Keep this folder
-    // limited to real mod artifacts: remove legacy state and never recreate it.
     std::error_code ignored;
     const auto state = root / L"mods" / L".neverlose-managed.txt";
     std::filesystem::remove(state, ignored);
@@ -31,17 +53,16 @@ bool LauncherCore::bootstrap() {
 }
 
 bool LauncherCore::refreshManifest() {
-    // The source is intentionally fixed: only repository writers can change it.
     settings_.manifestUrl = kOfficialManifestUrl;
     LauncherManifest next; std::wstring error;
     if (!manifestService_.load(kOfficialManifestUrl, next, error)) {
-        status_ = L"Official configuration is unavailable: " + error; return false;
+        status_ = L"Unable to load configuration: " + error; return false;
     }
     manifest_ = std::move(next);
     size_t versionIndex = selectedVersionIndex();
     if (versionIndex >= manifest_.versions.size() || !manifest_.versions[versionIndex].available) {
         auto available = std::find_if(manifest_.versions.begin(), manifest_.versions.end(), [](const VersionEntry& entry) { return entry.available; });
-        if (available == manifest_.versions.end()) { status_ = L"Manifest contains no available versions"; return false; }
+        if (available == manifest_.versions.end()) { status_ = L"No client versions are available"; return false; }
         settings_.selectedVersion = available->id;
     }
     if (manifest_.presets.empty()) settings_.selectedPreset.clear();
@@ -51,8 +72,14 @@ bool LauncherCore::refreshManifest() {
     return true;
 }
 
+const wchar_t* LauncherCore::currentVersion() { return kLauncherVersion; }
+
+bool LauncherCore::updateRequired() const {
+    return !manifest_.minimumVersion.empty() && versionLess(kLauncherVersion, manifest_.minimumVersion);
+}
+
 bool LauncherCore::saveSettings() {
-    if (settings_.nickname.empty()) { status_ = L"Nickname is required"; return false; }
+    if (settings_.nickname.empty()) { status_ = L"Enter a Minecraft nickname"; return false; }
     bool ok = settingsService_.save(settings_);
     status_ = ok ? L"Settings saved" : L"Unable to save settings";
     return ok;
@@ -74,10 +101,10 @@ void LauncherCore::selectVersion(size_t index) {
     if (index >= manifest_.versions.size()) return;
     if (!manifest_.versions[index].available) { status_ = L"This version is coming soon"; return; }
     settings_.selectedVersion = manifest_.versions[index].id;
-    status_ = L"Version selected: " + manifest_.versions[index].name;
+    status_ = L"Selected version: " + manifest_.versions[index].name;
 }
 void LauncherCore::selectPreset(size_t index) {
-    if (index < manifest_.presets.size()) { settings_.selectedPreset = manifest_.presets[index].id; applyPreset(); status_ = L"Preset applied: " + manifest_.presets[index].name; }
+    if (index < manifest_.presets.size()) { settings_.selectedPreset = manifest_.presets[index].id; applyPreset(); status_ = L"Applied preset: " + manifest_.presets[index].name; }
 }
 void LauncherCore::applyPreset() {
     enabledModules_.clear(); auto index = selectedPresetIndex(); if (index < manifest_.presets.size()) enabledModules_ = manifest_.presets[index].modules;
@@ -119,9 +146,10 @@ std::wstring LauncherCore::offlineUuid(const std::wstring& nickname) {
 }
 
 bool LauncherCore::launch(std::atomic_bool& cancelled, ArtifactDownloader::Progress progress) {
-    if (manifest_.maintenance) { status_ = manifest_.maintenanceMessage.empty() ? L"Launcher is under maintenance" : manifest_.maintenanceMessage; return false; }
-    if (settings_.nickname.empty()) { status_ = L"Enter a nickname"; return false; }
-    if (settings_.installDir.empty()) { status_ = L"Choose an install directory"; return false; }
+    if (updateRequired()) { status_ = L"Loader update required"; return false; }
+    if (manifest_.maintenance) { status_ = manifest_.maintenanceMessage.empty() ? L"The loader is under maintenance" : manifest_.maintenanceMessage; return false; }
+    if (settings_.nickname.empty()) { status_ = L"Enter a Minecraft nickname"; return false; }
+    if (settings_.installDir.empty()) { status_ = L"Choose an installation directory"; return false; }
     const auto* version = selectedVersion(); if (!version) { status_ = L"Select a version"; return false; }
 
     GameInstallResult install;
@@ -142,12 +170,12 @@ bool LauncherCore::launch(std::atomic_bool& cancelled, ArtifactDownloader::Progr
     mods.insert(mods.end(), version->artifacts.begin(), version->artifacts.end());
     removeLegacyManagedState(settings_.installDir);
     if (!mods.empty() && !downloader_.ensure(mods, settings_.installDir, cancelled, progress, status_)) return false;
-    if (cancelled) { status_ = L"Cancelled"; return false; }
+    if (cancelled) { status_ = L"Operation cancelled"; return false; }
     removeLegacyManagedState(settings_.installDir);
 
     std::filesystem::path localJava = std::filesystem::path(settings_.installDir) / L"runtime" / L"bin" / L"javaw.exe";
     std::wstring java = std::filesystem::exists(localJava) ? localJava.wstring() : GameInstaller::findJava();
-    if (java.empty()) { status_ = L"Java 21 not found. Install Temurin 21 or place it in runtime/bin"; return false; }
+    if (java.empty()) { status_ = L"Java 21 was not found. Install Temurin 21 or place Java in runtime/bin"; return false; }
 
     std::wstring classpath;
     for (const auto& relative : install.classpath) {

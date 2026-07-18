@@ -31,14 +31,16 @@ LauncherSettings SettingsService::load() const {
     auto file = settingsPath();
     s.nickname = readValue(file, L"Nickname", L"");
     s.avatarPath = readValue(file, L"AvatarPath", L"");
-    s.language = readValue(file, L"Language", L"ru");
+    s.language = readValue(file, L"Language", L"en");
     s.installDir = readValue(file, L"InstallDir", L"C:\\NeverloseClient");
     s.manifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
     s.selectedVersion = readValue(file, L"SelectedVersion", L"1.21");
     s.selectedPreset = readValue(file, L"SelectedPreset", L"");
+    s.theme = GetPrivateProfileIntW(L"Launcher", L"Theme", 1, file.c_str());
     s.ramMb = GetPrivateProfileIntW(L"Launcher", L"RamMb", 4096, file.c_str());
     s.firstRunComplete = readBool(file, L"FirstRunComplete", false);
-    if (s.ramMb < 2048 || s.ramMb > 32768) s.ramMb = 4096;
+    if (s.theme < 0 || s.theme > 2) s.theme = 1;
+    if (s.ramMb < 2048 || s.ramMb > 16384) s.ramMb = 4096;
     return s;
 }
 
@@ -54,6 +56,7 @@ bool SettingsService::save(const LauncherSettings& s) const {
     ok &= write(L"InstallDir", s.installDir);
     ok &= write(L"SelectedVersion", s.selectedVersion);
     ok &= write(L"SelectedPreset", s.selectedPreset);
+    ok &= write(L"Theme", std::to_wstring(s.theme));
     ok &= write(L"RamMb", std::to_wstring(s.ramMb));
     ok &= write(L"FirstRunComplete", s.firstRunComplete ? L"1" : L"0");
     return ok;

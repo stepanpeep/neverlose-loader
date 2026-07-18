@@ -2,6 +2,8 @@
 #include <windowsx.h>
 #include <dwmapi.h>
 #include <shobjidl.h>
+#include <shellapi.h>
+#include <commctrl.h>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -9,8 +11,62 @@
 using Microsoft::WRL::ComPtr;
 
 namespace {
+int activeTheme = 1;
+float animationDelta = 1.f / 60.f;
+float themeAnimation[3]{};
+float updateAnimation = 0.f;
+int pageSlideDirection = 1;
+ULONGLONG lastAnimationTick = 0;
+bool trackingMouse = false;
+
+float smoothTo(float current, float target, float speed, float delta) {
+    float amount = 1.f - std::exp(-speed * std::clamp(delta, 0.f, .05f));
+    return current + (target - current) * amount;
+}
+
+float smoothStep(float value) {
+    value = std::clamp(value, 0.f, 1.f);
+    return value * value * (3.f - 2.f * value);
+}
+
+float easeOutCubic(float value) {
+    value = 1.f - std::clamp(value, 0.f, 1.f);
+    return 1.f - value * value * value;
+}
+
 D2D1_COLOR_F color(UINT32 hex, float alpha = 1.f) {
-    return D2D1::ColorF((hex >> 16 & 255) / 255.f, (hex >> 8 & 255) / 255.f, (hex & 255) / 255.f, alpha);
+    float r = static_cast<float>(hex >> 16 & 255) / 255.f;
+    float g = static_cast<float>(hex >> 8 & 255) / 255.f;
+    float b = static_cast<float>(hex & 255) / 255.f;
+    float maximum = std::max({r, g, b});
+    float minimum = std::min({r, g, b});
+    float luminance = .2126f * r + .7152f * g + .0722f * b;
+    bool chromatic = maximum - minimum > .13f;
+    bool danger = r > g * 1.3f && r > b * 1.15f;
+    if (activeTheme == 0 && !danger) {
+        if (luminance < .16f) {
+            float shade = .90f - luminance * .10f;
+            r = shade; g = std::min(1.f, shade + .018f); b = std::min(1.f, shade + .045f);
+        } else if (luminance > .68f && !chromatic) {
+            r = .10f; g = .13f; b = .19f;
+        } else if (!chromatic) {
+            float shade = std::clamp(.50f - luminance * .24f, .27f, .48f);
+            r = shade; g = shade + .035f; b = shade + .09f;
+        } else {
+            r = std::clamp(r * .78f, 0.f, 1.f);
+            g = std::clamp(g * .86f, 0.f, 1.f);
+            b = std::clamp(b * 1.03f, 0.f, 1.f);
+        }
+    } else if (activeTheme == 2 && !danger) {
+        if (luminance < .16f) {
+            float shade = .022f + luminance * .16f;
+            r = shade; g = shade + .003f; b = shade + .008f;
+        } else if (chromatic) {
+            float gray = luminance * .35f;
+            r = r * .62f + gray; g = g * .62f + gray; b = std::min(1.f, b * .77f + gray);
+        }
+    }
+    return D2D1::ColorF(r, g, b, alpha);
 }
 std::wstring editText(HWND edit) {
     int length = GetWindowTextLengthW(edit);
@@ -28,6 +84,8 @@ std::wstring formatMemory(float mb) {
 int App::run(HINSTANCE instance, int show) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     core_.bootstrap();
+    lastAnimationTick = GetTickCount64();
+    activeTheme = core_.settings().theme;
     ramVisualMb_ = static_cast<float>(core_.settings().ramMb);
     for (size_t i = 0; i < core_.manifest().modules.size() && i < 64; ++i)
         moduleToggleAnim_[i] = core_.moduleEnabled(i) ? 1.f : 0.f;
@@ -72,8 +130,7 @@ bool App::createWindow(HINSTANCE instance, int show) {
     if (!hwnd_) return false;
 
     dpi_ = GetDpiForWindow(hwnd_);
-    BOOL dark = TRUE;
-    DwmSetWindowAttribute(hwnd_, 20, &dark, sizeof(dark));
+    applyWindowTheme();
     DWM_WINDOW_CORNER_PREFERENCE corners = DWMWCP_ROUND;
     DwmSetWindowAttribute(hwnd_, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof(corners));
 
@@ -81,6 +138,8 @@ bool App::createWindow(HINSTANCE instance, int show) {
     nickEdit_ = CreateWindowExW(0, L"EDIT", L"", editStyle, 0, 0, 100, 30, hwnd_, reinterpret_cast<HMENU>(101), instance, nullptr);
     pathEdit_ = CreateWindowExW(0, L"EDIT", L"", editStyle, 0, 0, 100, 30, hwnd_, reinterpret_cast<HMENU>(102), instance, nullptr);
     setEditFont(nickEdit_); setEditFont(pathEdit_);
+    SendMessageW(nickEdit_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"For example, Steve"));
+    SendMessageW(pathEdit_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Client installation folder"));
 
     SetTimer(hwnd_, 1, 16, nullptr);
     ShowWindow(hwnd_, show);
@@ -122,37 +181,60 @@ LRESULT App::handle(UINT msg, WPARAM w, LPARAM l) {
         }
         case WM_PAINT: render(); return 0;
         case WM_TIMER: {
-            time_ += .016f;
-            transition_ = std::clamp(transition_ + (1.f - transition_) * .14f, 0.f, 1.f);
-            introAnim_ = std::clamp(introAnim_ + (1.f - introAnim_) * .10f, 0.f, 1.f);
-            versionDropdownAnim_ = std::clamp(versionDropdownAnim_ + ((versionDropdownOpen_ ? 1.f : 0.f) - versionDropdownAnim_) * .18f, 0.f, 1.f);
-            moduleScroll_ += (moduleScrollTarget_ - moduleScroll_) * .16f;
+            ULONGLONG now = GetTickCount64();
+            animationDelta = lastAnimationTick ? std::clamp(static_cast<float>(now - lastAnimationTick) / 1000.f, .001f, .05f) : 1.f / 60.f;
+            lastAnimationTick = now;
+            time_ += animationDelta;
+            transition_ = smoothTo(transition_, 1.f, 12.f, animationDelta);
+            introAnim_ = smoothTo(introAnim_, 1.f, 8.f, animationDelta);
+            versionDropdownAnim_ = smoothTo(versionDropdownAnim_, versionDropdownOpen_ ? 1.f : 0.f, 16.f, animationDelta);
+            moduleScroll_ = smoothTo(moduleScroll_, moduleScrollTarget_, 13.f, animationDelta);
+            onboardingAnim_ = smoothTo(onboardingAnim_, firstRun_ ? 1.f : 0.f, 11.f, animationDelta);
+            updateAnimation = smoothTo(updateAnimation, core_.updateRequired() ? 1.f : 0.f, 10.f, animationDelta);
+            if (!versionDropdownOpen_) for (float& value : versionItemAnim_) value = smoothTo(value, 0.f, 18.f, animationDelta);
+            if (std::abs(1.f - transition_) < .001f) transition_ = 1.f;
             if (std::abs(moduleScrollTarget_ - moduleScroll_) < .05f) moduleScroll_ = moduleScrollTarget_;
-            onboardingAnim_ = std::clamp(onboardingAnim_ + ((firstRun_ ? 1.f : 0.f) - onboardingAnim_) * .13f, 0.f, 1.f);
-            if (transition_ > .998f) transition_ = 1.f;
             float targetRam = static_cast<float>(core_.settings().ramMb);
-            ramVelocity_ += (targetRam - ramVisualMb_) * .045f;
-            ramVelocity_ *= ramDragging_ ? .76f : .70f;
-            float nextRam = ramVisualMb_ + ramVelocity_;
-            if (nextRam <= 2048.f || nextRam >= 16384.f) ramVelocity_ = 0.f;
-            ramVisualMb_ = std::clamp(nextRam, 2048.f, 16384.f);
-            if (!ramDragging_ && std::abs(targetRam - ramVisualMb_) < .2f && std::abs(ramVelocity_) < .2f) {
-                ramVisualMb_ = targetRam; ramVelocity_ = 0.f;
+            if (ramDragging_) {
+                ramVisualMb_ = targetRam;
+                ramVelocity_ = 0.f;
+            } else {
+                float spring = 74.f;
+                float damping = 15.f;
+                ramVelocity_ += (targetRam - ramVisualMb_) * spring * animationDelta;
+                ramVelocity_ *= std::exp(-damping * animationDelta);
+                ramVisualMb_ = std::clamp(ramVisualMb_ + ramVelocity_ * animationDelta, 2048.f, 16384.f);
+                if (std::abs(targetRam - ramVisualMb_) < .3f && std::abs(ramVelocity_) < .3f) {
+                    ramVisualMb_ = targetRam;
+                    ramVelocity_ = 0.f;
+                }
             }
-            RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE | RDW_NOCHILDREN);
+            if (page_ == 2 || firstRun_ || core_.updateRequired()) updateEditVisibility();
+            if (!IsIconic(hwnd_)) RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE | RDW_NOCHILDREN);
             return 0;
         }
         case WM_MOUSEMOVE: {
             float x = static_cast<float>(GET_X_LPARAM(l));
             float y = static_cast<float>(GET_Y_LPARAM(l));
+            if (!trackingMouse) {
+                TRACKMOUSEEVENT tracking{sizeof(tracking), TME_LEAVE, hwnd_, 0};
+                TrackMouseEvent(&tracking);
+                trackingMouse = true;
+            }
             if (ramDragging_) setMemoryFromX(x);
             mouseMove(x, y);
             return 0;
         }
+        case WM_MOUSELEAVE:
+            trackingMouse = false;
+            hoverX_ = hoverY_ = -1.f;
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
         case WM_LBUTTONUP:
             if (ramDragging_) { ramDragging_ = false; ReleaseCapture(); core_.saveSettings(); }
             return 0;
         case WM_CAPTURECHANGED:
+            if (ramDragging_) core_.saveSettings();
             ramDragging_ = false;
             return 0;
         case WM_MOUSEWHEEL:
@@ -189,11 +271,24 @@ LRESULT App::handle(UINT msg, WPARAM w, LPARAM l) {
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLOREDIT: {
             HDC dc = reinterpret_cast<HDC>(w);
-            SetTextColor(dc, RGB(224, 233, 255));
-            SetBkColor(dc, RGB(10, 16, 32));
-            static HBRUSH background = CreateSolidBrush(RGB(10, 16, 32));
-            return reinterpret_cast<LRESULT>(background);
+            static HBRUSH brushes[3] = {
+                CreateSolidBrush(RGB(246, 249, 255)),
+                CreateSolidBrush(RGB(10, 16, 32)),
+                CreateSolidBrush(RGB(18, 19, 22))
+            };
+            COLORREF textColors[3] = {RGB(25, 33, 48), RGB(224, 233, 255), RGB(238, 240, 245)};
+            COLORREF backgrounds[3] = {RGB(246, 249, 255), RGB(10, 16, 32), RGB(18, 19, 22)};
+            int theme = std::clamp(core_.settings().theme, 0, 2);
+            SetTextColor(dc, textColors[theme]);
+            SetBkColor(dc, backgrounds[theme]);
+            return reinterpret_cast<LRESULT>(brushes[theme]);
         }
+        case WM_COMMAND:
+            if (HIWORD(w) == EN_KILLFOCUS && (reinterpret_cast<HWND>(l) == nickEdit_ || reinterpret_cast<HWND>(l) == pathEdit_)) {
+                syncEditsToCore();
+                if (!core_.settings().nickname.empty()) core_.saveSettings();
+            }
+            return 0;
         case WM_APP + 1:
             busy_ = false;
             InvalidateRect(hwnd_, nullptr, FALSE);
@@ -225,9 +320,9 @@ bool App::createGraphics() {
     auto makeFont = [&](float size, DWRITE_FONT_WEIGHT weight, ComPtr<IDWriteTextFormat>& out) {
         if (out) return;
         HRESULT hr = writeFactory_->CreateTextFormat(L"Segoe UI Variable Display", nullptr, weight,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"en-US", out.GetAddressOf());
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"ru-RU", out.GetAddressOf());
         if (FAILED(hr)) writeFactory_->CreateTextFormat(L"Segoe UI", nullptr, weight,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"en-US", out.GetAddressOf());
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"ru-RU", out.GetAddressOf());
     };
     makeFont(32, DWRITE_FONT_WEIGHT_SEMI_BOLD, displayFont_);
     makeFont(19, DWRITE_FONT_WEIGHT_SEMI_BOLD, titleFont_);
@@ -309,8 +404,8 @@ void App::renderTitlebar() {
     Rect closeButton{width_ - 47, 8, 34, 32};
     bool minHover = minButton.contains(hoverX_, hoverY_);
     bool closeHover = closeButton.contains(hoverX_, hoverY_);
-    windowButtonAnim_[0]+=((minHover?1.f:0.f)-windowButtonAnim_[0])*.18f;
-    windowButtonAnim_[1]+=((closeHover?1.f:0.f)-windowButtonAnim_[1])*.18f;
+    windowButtonAnim_[0] = smoothTo(windowButtonAnim_[0], minHover ? 1.f : 0.f, 18.f, animationDelta);
+    windowButtonAnim_[1] = smoothTo(windowButtonAnim_[1], closeHover ? 1.f : 0.f, 18.f, animationDelta);
     roundRect(minButton, 8, color(0x294A8A, .32f*windowButtonAnim_[0]));
     roundRect(closeButton, 8, color(0xE54864, .76f*windowButtonAnim_[1]));
     drawIcon(Icon::Minimize, minButton, color(0x9AAED0));
@@ -334,7 +429,7 @@ void App::renderSidebar() {
         Rect item{28, 116 + static_cast<float>(i) * 54, 178, 42};
         bool active = page_ == static_cast<int>(i);
         bool hover = item.contains(hoverX_, hoverY_);
-        navAnim_[i] += (((hover || active) ? 1.f : 0.f) - navAnim_[i]) * .16f;
+        navAnim_[i] = smoothTo(navAnim_[i], (hover || active) ? 1.f : 0.f, 15.f, animationDelta);
         float n = navAnim_[i];
         if (n > .01f) roundRect(item, 11, active ? color(0x142B59, .92f) : color(0x10203D, .58f*n), 1, active ? color(0x2F6FFF, .38f+.2f*n) : color(0x29436F, .2f*n));
         drawIcon(icons[i], {41, item.y + 9, 24, 24}, active ? color(0x6DA2FF) : color(0x627799), 1.55f);
@@ -344,19 +439,21 @@ void App::renderSidebar() {
 
     Rect account{28, height_ - 82, 178, 54};
     bool accountHover=account.contains(hoverX_,hoverY_);
-    avatarHoverAnim_ += ((accountHover?1.f:0.f)-avatarHoverAnim_)*.14f;
-    roundRect(account, 14, accountHover?color(0x111E38):color(0x0D162A), 1, color(0x2C4D82, .62f+.24f*avatarHoverAnim_));
+    avatarHoverAnim_ = smoothTo(avatarHoverAnim_, accountHover ? 1.f : 0.f, 14.f, animationDelta);
+    roundRect(account, 14, color(0x0D162A), 1, color(0x2C4D82, .62f+.24f*avatarHoverAnim_));
+    if (avatarHoverAnim_ > .01f) roundRect(account, 14, color(0x24477D, .22f * avatarHoverAnim_));
     Rect avatar{39, account.y + 9, 36, 36};
     roundRect({avatar.x-2, avatar.y-2, 40, 40}, 20, color(0x173264), 1, color(0x3778F2, .52f));
     drawAvatar(avatar);
-    drawText(core_.settings().nickname.empty() ? L"Player" : core_.settings().nickname, {88, account.y + 5, 98, 25}, color(0xDDE8FF), buttonFont_.Get());
-    drawText(L"Local profile", {88, account.y + 27, 98, 18}, color(0x58719D), smallFont_.Get());
+    std::wstring profileName = core_.settings().nickname.empty() ? L"Player" : core_.settings().nickname;
+    if (profileName.size() > 13) profileName = profileName.substr(0, 11) + L"...";
+    drawText(profileName, {88, account.y, 104, account.h}, color(0xE7EEFC), buttonFont_.Get());
     addHit(account, HitType::Avatar);
 }
 
 void App::renderHome(Rect area) {
     drawText(L"Ready to play", {area.x, area.y, area.w, 42}, color(0xF5F8FF), displayFont_.Get());
-    drawText(L"Minecraft 1.21  /  Fabric environment", {area.x, area.y + 42, area.w, 23}, color(0x6F83A8), bodyFont_.Get());
+    drawText(L"Minecraft 1.21  /  Fabric", {area.x, area.y + 42, area.w, 23}, color(0x6F83A8), bodyFont_.Get());
 
     float top = area.y + 88;
     float rightW = std::max(230.f, area.w * .31f);
@@ -391,16 +488,18 @@ void App::renderHome(Rect area) {
 
     Rect launch{hero.x + 24, hero.y + hero.h - 66, hero.w - 48, 42};
     bool launchHover = launch.contains(hoverX_, hoverY_);
-    launchAnim_ += (((launchHover && !busy_) ? 1.f : 0.f) - launchAnim_) * .15f;
+    launchAnim_ = smoothTo(launchAnim_, (launchHover && !busy_) ? 1.f : 0.f, 15.f, animationDelta);
     float la = launchAnim_;
     roundRect(launch, 12, busy_ ? color(0x13213B) : D2D1::ColorF(.12f+.05f*la,.35f+.09f*la,.94f,1), 1, busy_ ? color(0x2F4772,.5f) : color(0x76A9FF,.34f+.22f*la));
     if (!busy_) {
         float sheen=launch.x+std::fmod(time_*92.f,launch.w+64.f)-32.f;
+        target_->PushAxisAlignedClip(D2D1::RectF(launch.x, launch.y, launch.x + launch.w, launch.y + launch.h), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         line(sheen,launch.y+7,sheen+13,launch.y+launch.h-7,color(0xFFFFFF,.055f+.055f*la),6.f);
+        target_->PopAxisAlignedClip();
         drawIcon(Icon::Play, {launch.x + 18, launch.y + 10 - la, 22, 22}, color(0xF7FAFF), 1.8f);
     } else {
         float cx=launch.x+29,cy=launch.y+21;
-        for(int i=0;i<8;++i){float a=time_*3.f+i*.7854f;roundRect({cx+std::cos(a)*7-1,cy+std::sin(a)*7-1,2,2},1,color(0x8CB5FF,(i+1)/8.f));}
+        for(int i=0;i<8;++i){float a=time_*4.2f+i*.7854f;float pulse=.25f+.75f*static_cast<float>(i+1)/8.f;roundRect({cx+std::cos(a)*7-1,cy+std::sin(a)*7-1,2,2},1,color(0x8CB5FF,pulse));}
     }
     drawText(busy_ ? L"Cancel installation" : L"Launch client", {launch.x+42,launch.y,launch.w-58,launch.h}, color(busy_?0x8294B3:0xFFFFFF), buttonFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
     addHit(launch,HitType::Launch);
@@ -442,7 +541,7 @@ void App::renderHome(Rect area) {
         roundRect({build.x,panelY,build.w,12.f+count*44.f},13,color(0x091326,.995f),1,color(0x315083,.92f));
         for(size_t i=0;i<count;++i){
             const auto& version=core_.manifest().versions[i];Rect row{build.x+6,panelY+6+i*44.f,build.w-12,38};
-            bool hover=row.contains(hoverX_,hoverY_);versionItemAnim_[i]=std::clamp(versionItemAnim_[i]+((hover?1.f:0.f)-versionItemAnim_[i])*.16f,0.f,1.f);
+            bool hover=row.contains(hoverX_,hoverY_);versionItemAnim_[i] = smoothTo(versionItemAnim_[i], hover ? 1.f : 0.f, 17.f, animationDelta);
             bool selected=i==selectedIndex;
             if(hover||selected)roundRect(row,9,selected?color(0x17356E,.92f):color(0x122445,.72f*versionItemAnim_[i]),1,selected?color(0x3F83FF,.48f):color(0x345686,.28f*versionItemAnim_[i]));
             drawText(version.name,{row.x+13,row.y,row.w-115,row.h},version.available?color(0xE4EDFF):color(0x657793),buttonFont_.Get());
@@ -457,15 +556,15 @@ void App::renderHome(Rect area) {
 
 void App::renderModules(Rect area) {
     drawText(L"Components", {area.x, area.y, area.w, 42}, color(0xF5F8FF), displayFont_.Get());
-    drawText(L"Server-synced Fabric components for the selected build.", {area.x, area.y + 42, area.w, 23}, color(0x6F83A8), bodyFont_.Get());
+    drawText(L"Fabric components for the selected build.", {area.x, area.y + 42, area.w, 23}, color(0x6F83A8), bodyFont_.Get());
     drawText(L"QUICK PRESET", {area.x, area.y + 88, 150, 18}, color(0x526A94), smallFont_.Get());
     roundRect({area.x+area.w-142,area.y+84,142,24},12,color(0x102B5D),1,color(0x347BFF,.35f));
-    drawText(L"MODRINTH  •  LIVE",{area.x+area.w-142,area.y+84,142,24},color(0x78A8FF),smallFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
+    drawText(L"COMPONENTS  •  LIVE",{area.x+area.w-142,area.y+84,142,24},color(0x78A8FF),smallFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
     float presetW=(area.w-36)/4.f;
     for(size_t i=0;i<core_.manifest().presets.size()&&i<4;++i){
         Rect preset{area.x+i*(presetW+12),area.y+114,presetW,40};
         bool active=i==core_.selectedPresetIndex(),hover=preset.contains(hoverX_,hoverY_);
-        presetAnim_[i]+=(((active||hover)?1.f:0.f)-presetAnim_[i])*.16f;float a=presetAnim_[i];
+        presetAnim_[i] = smoothTo(presetAnim_[i], (active || hover) ? 1.f : 0.f, 15.f, animationDelta);float a=presetAnim_[i];
         roundRect(preset,11,active?color(0x142E61):color(0x0A1326),1,active?color(0x397DFF,.48f+.24f*a):color(0x263A60,.55f+.24f*a));
         if(hover&&!active)roundRect({preset.x+12,preset.y+preset.h-3,preset.w-24,2},1,color(0x4A88FF,.24f*a));
         drawText(core_.manifest().presets[i].name,preset,active?color(0x8DB7FF):color(0x8293B1),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -485,8 +584,8 @@ void App::renderModules(Rect area) {
         Rect card{area.x+col*(area.w/2+7),startY+row*94,area.w/2-7,82};
         bool active=core_.moduleEnabled(i),hover=card.contains(hoverX_,hoverY_);
         bool visible=card.y+card.h>=listTop&&card.y<=listBottom;
-        if(i<64)moduleAnim_[i]+=(((hover&&visible)?1.f:0.f)-moduleAnim_[i])*.15f;float a=i<64?moduleAnim_[i]:0.f;
-        if(i<64)moduleToggleAnim_[i]+=(((active?1.f:0.f)-moduleToggleAnim_[i])*.18f);
+        if(i<64)moduleAnim_[i] = smoothTo(moduleAnim_[i], (hover && visible) ? 1.f : 0.f, 15.f, animationDelta);float a=i<64?moduleAnim_[i]:0.f;
+        if(i<64)moduleToggleAnim_[i] = smoothTo(moduleToggleAnim_[i], active ? 1.f : 0.f, 18.f, animationDelta);
         float toggleA=i<64?moduleToggleAnim_[i]:(active?1.f:0.f);
         roundRect(card,16,hover?color(0x0E1A32):color(0x0A1122),1,active?color(0x377BFA,.42f+.12f*a):color(0x263A62,.58f+.18f*a));
         if(hover)roundRect({card.x+1,card.y+card.h-3,card.w-2,2},1,color(0x3A7DFF,.16f*a));
@@ -511,8 +610,8 @@ void App::renderModules(Rect area) {
 
 void App::renderSettings(Rect area) {
     drawText(L"Settings", {area.x, area.y, area.w, 42}, color(0xF5F8FF), displayFont_.Get());
-    drawText(L"Profile, installation source and runtime limits.", {area.x, area.y + 42, area.w, 23}, color(0x6F83A8), bodyFont_.Get());
-    Rect panel{area.x,area.y+88,area.w,382};roundRect(panel,20,color(0x0A1122),1,color(0x263A62,.72f));
+    drawText(L"Profile, appearance, installation and runtime.", {area.x, area.y + 42, area.w, 23}, color(0x6F83A8), bodyFont_.Get());
+    Rect panel{area.x,area.y+88,area.w,382};roundRect(panel,16,color(0x0A1122),1,color(0x263A62,.72f));
     drawText(L"PROFILE",{panel.x+24,panel.y+20,160,18},color(0x526A94),smallFont_.Get());
     drawText(L"Minecraft nickname",{panel.x+24,panel.y+54,175,24},color(0xA9B9D3),bodyFont_.Get());
     roundRect({panel.x+210,panel.y+48,panel.w-234,38},10,color(0x0A1020),1,color(0x2B416B,.72f));
@@ -520,12 +619,22 @@ void App::renderSettings(Rect area) {
     drawText(L"INSTALLATION",{panel.x+24,panel.y+122,160,18},color(0x526A94),smallFont_.Get());
     drawText(L"Game directory",{panel.x+24,panel.y+157,175,24},color(0xA9B9D3),bodyFont_.Get());
     roundRect({panel.x+210,panel.y+151,panel.w-286,38},10,color(0x0A1020),1,color(0x2B416B,.72f));
-    Rect browse{panel.x+panel.w-60,panel.y+151,36,38};bool browseHover=browse.contains(hoverX_,hoverY_);actionAnim_[0]+=((browseHover?1.f:0.f)-actionAnim_[0])*.17f;roundRect(browse,10,browseHover?color(0x17376E):color(0x101C34),1,color(0x3C6DB5,.55f+.3f*actionAnim_[0]));drawIcon(Icon::Folder,{browse.x,browse.y-actionAnim_[0],browse.w,browse.h},color(0x76A6F7));addHit(browse,HitType::Browse);
-    drawText(L"CONFIGURATION",{panel.x+24,panel.y+207,175,18},color(0x526A94),smallFont_.Get());
-    roundRect({panel.x+210,panel.y+197,panel.w-234,40},10,color(0x0A1020),1,color(0x2B416B,.72f));
-    roundRect({panel.x+224,panel.y+208,18,18},9,color(0x13316A),1,color(0x4C8DFF,.54f));
-    drawIcon(Icon::Check,{panel.x+224,panel.y+208,18,18},color(0x83B2FF),1.3f);
-    drawText(L"Official GitHub configuration",{panel.x+252,panel.y+199,panel.w-276,36},color(0xA9C4F5),smallFont_.Get());
+    Rect browse{panel.x+panel.w-60,panel.y+151,36,38};bool browseHover=browse.contains(hoverX_,hoverY_);actionAnim_[0] = smoothTo(actionAnim_[0], browseHover ? 1.f : 0.f, 17.f, animationDelta);roundRect(browse,10,browseHover?color(0x17376E):color(0x101C34),1,color(0x3C6DB5,.55f+.3f*actionAnim_[0]));drawIcon(Icon::Folder,{browse.x,browse.y-actionAnim_[0],browse.w,browse.h},color(0x76A6F7));addHit(browse,HitType::Browse);
+    drawText(L"APPEARANCE",{panel.x+24,panel.y+207,175,18},color(0x526A94),smallFont_.Get());
+    const wchar_t* themeNames[] = {L"Soft light", L"Blue", L"Dark"};
+    float themeWidth = (panel.w - 250.f) / 3.f;
+    for (size_t i = 0; i < 3; ++i) {
+        Rect themeCard{panel.x + 210 + i * (themeWidth + 8), panel.y + 197, themeWidth, 40};
+        bool selected = core_.settings().theme == static_cast<int>(i);
+        bool hover = themeCard.contains(hoverX_, hoverY_);
+        themeAnimation[i] = smoothTo(themeAnimation[i], (selected || hover) ? 1.f : 0.f, 16.f, animationDelta);
+        float themeState = themeAnimation[i];
+        roundRect(themeCard, 8, selected ? color(0x15356D) : color(0x0A1020), 1, selected ? color(0x4A8BFF, .8f) : color(0x2B416B, .62f + .28f * themeState));
+        if (themeState > .01f) roundRect({themeCard.x + 1, themeCard.y + themeCard.h - 3, themeCard.w - 2, 2}, 1, color(0x4A8BFF, .42f * themeState));
+        if (selected) roundRect({themeCard.x + 10, themeCard.y + 15, 10, 10}, 5, color(0x5A95FF));
+        drawText(themeNames[i], {themeCard.x + (selected ? 22.f : 6.f), themeCard.y, themeCard.w - (selected ? 26.f : 12.f), themeCard.h}, selected ? color(0xEAF1FF) : color(0x91A2BD), smallFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+        addHit(themeCard, HitType::Theme, i);
+    }
     line(panel.x+24,panel.y+258,panel.x+panel.w-24,panel.y+258,color(0x223452,.65f),1);
     drawText(L"RUNTIME MEMORY",{panel.x+24,panel.y+275,180,18},color(0x526A94),smallFont_.Get());
     drawText(L"Memory allocation",{panel.x+24,panel.y+310,175,24},color(0xA9B9D3),bodyFont_.Get());
@@ -614,29 +723,73 @@ void App::chooseAvatar() {
 
 void App::renderOnboarding() {
     float alpha=std::clamp(onboardingAnim_,0.f,1.f);
+    float eased=easeOutCubic(alpha);
     brush_->SetColor(color(0x030611,.9f*alpha));target_->FillRectangle(D2D1::RectF(0,0,width_,height_),brush_.Get());
-    float cardW=430,cardH=400,x=width_/2-cardW/2,y=height_/2-cardH/2+(1-alpha)*14;
+    float cardW=430,cardH=400,x=width_/2-cardW/2,y=height_/2-cardH/2+(1-eased)*18;
+    ComPtr<ID2D1Layer> onboardingLayer; target_->CreateLayer(onboardingLayer.GetAddressOf());
+    target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Identity(), alpha), onboardingLayer.Get());
     Rect card{x,y,cardW,cardH};roundRect(card,24,color(0x091224,.99f),1,color(0x2C4472,.8f));
     roundRect({x+cardW/2-36,y+25,72,72},20,color(0x102B61),1,color(0x347BFF,.52f));drawLogo({x+cardW/2-30,y+31,60,60});
     drawText(L"Welcome to Neverlose Loader",{x+30,y+111,cardW-60,34},color(0xF2F6FF),titleFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
-    drawText(L"Create a local Minecraft profile",{x+30,y+145,cardW-60,22},color(0x7185A8),bodyFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
+    drawText(L"Set up your Minecraft profile",{x+30,y+145,cardW-60,22},color(0x7185A8),bodyFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
     Rect avatar{x+cardW/2-38,y+181,76,76};roundRect({avatar.x-4,avatar.y-4,84,84},42,color(0x102A5A),1,color(0x347BFF,.45f));drawAvatar(avatar);
-    Rect choose{x+cardW/2+55,y+202,92,34};roundRect(choose,10,choose.contains(hoverX_,hoverY_)?color(0x173B78):color(0x111D35),1,color(0x2D4775,.8f));drawText(L"Avatar",choose,color(0xA9BCE0),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);addHit(choose,HitType::Avatar);
+    Rect choose{x+cardW/2+55,y+202,92,34};roundRect(choose,10,choose.contains(hoverX_,hoverY_)?color(0x173B78):color(0x111D35),1,color(0x2D4775,.8f));drawText(L"Avatar",choose,color(0xA9BCE0),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);if(alpha>.75f)addHit(choose,HitType::Avatar);
     drawText(L"MINECRAFT NICKNAME",{x+68,y+276,294,18},color(0x526A94),smallFont_.Get());roundRect({x+68,y+300,294,40},11,color(0x0A1020),1,color(0x2B416B,.8f));
-    Rect next{x+68,y+354,294,40};bool hover=next.contains(hoverX_,hoverY_);roundRect(next,11,hover?color(0x4386FF):color(0x2E6FEB),1,color(0x7AABFF,.35f));drawText(L"Continue",next,color(0xFFFFFF),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);addHit(next,HitType::Continue);
+    Rect next{x+68,y+354,294,40};bool hover=next.contains(hoverX_,hoverY_);roundRect(next,11,hover?color(0x4386FF):color(0x2E6FEB),1,color(0x7AABFF,.35f));drawText(L"Continue",next,color(0xFFFFFF),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);if(alpha>.75f)addHit(next,HitType::Continue);
+    target_->PopLayer();
+}
+
+void App::renderUpdateRequired() {
+    float alpha = std::clamp(updateAnimation, 0.f, 1.f);
+    float eased = easeOutCubic(alpha);
+    brush_->SetColor(color(0x030611, .92f * alpha));
+    target_->FillRectangle(D2D1::RectF(0, 0, width_, height_), brush_.Get());
+    float cardW = 500.f, cardH = 328.f;
+    float x = width_ / 2 - cardW / 2, y = height_ / 2 - cardH / 2 + (1.f - eased) * 20.f;
+    ComPtr<ID2D1Layer> updateLayer; target_->CreateLayer(updateLayer.GetAddressOf());
+    target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Identity(), alpha), updateLayer.Get());
+    Rect card{x, y, cardW, cardH};
+    roundRect(card, 24, color(0x091224, .995f), 1, color(0x3D63A4, .82f));
+    roundRect({x + 32, y + 30, 64, 64}, 18, color(0x17376F), 1, color(0x4D8BFF, .65f));
+    drawIcon(Icon::Download, {x + 49, y + 47, 30, 30}, color(0x93B9FF), 2.f);
+    drawText(L"Update required", {x + 116, y + 27, cardW - 148, 38}, color(0xF3F7FF), titleFont_.Get());
+    drawText(L"Version " + std::wstring(LauncherCore::currentVersion()) + L" is no longer supported", {x + 116, y + 65, cardW - 148, 24}, color(0x7890B7), smallFont_.Get());
+    std::wstring message = core_.manifest().updateMessage.empty() ? L"Install the latest loader build to continue." : core_.manifest().updateMessage;
+    drawText(message, {x + 32, y + 119, cardW - 64, 58}, color(0xAFC0DC), bodyFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    line(x + 32, y + 194, x + cardW - 32, y + 194, color(0x263B60, .7f), 1.f);
+    drawText(L"This version can no longer launch the client", {x + 32, y + 211, cardW - 64, 24}, color(0x7287A8), smallFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    Rect discord{x + 32, y + 253, cardW - 64, 46};
+    bool hover = discord.contains(hoverX_, hoverY_);
+    roundRect(discord, 12, hover ? color(0x4E68E8) : color(0x4458D4), 1, color(0x9AA8FF, hover ? .7f : .38f));
+    drawText(L"Open Discord to download the update", discord, color(0xFFFFFF), buttonFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    if (alpha > .75f) addHit(discord, HitType::DiscordUpdate);
+    target_->PopLayer();
+}
+
+void App::applyWindowTheme() {
+    BOOL dark = core_.settings().theme == 0 ? FALSE : TRUE;
+    DwmSetWindowAttribute(hwnd_, 20, &dark, sizeof(dark));
+}
+
+void App::openUpdateChannel() {
+    std::wstring url = core_.manifest().updateUrl.empty() ? L"https://discord.gg/WbZarvYWgX" : core_.manifest().updateUrl;
+    ShellExecuteW(hwnd_, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void App::render() {
     PAINTSTRUCT paint{};BeginPaint(hwnd_,&paint);if(!createGraphics()){EndPaint(hwnd_,&paint);return;}hits_.clear();target_->BeginDraw();target_->Clear(color(0x050914));
     D2D1_GRADIENT_STOP stops[]={{0,color(0x175DE8,.10f)},{1,color(0x071227,0)}};ComPtr<ID2D1GradientStopCollection> collection;ComPtr<ID2D1RadialGradientBrush> glow;
+    activeTheme = std::clamp(core_.settings().theme, 0, 2);
     target_->CreateGradientStopCollection(stops,2,collection.GetAddressOf());float gx=width_*.72f+std::sin(time_*.22f)*38.f;
     target_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(gx,-80),D2D1::Point2F(0,0),520,420),collection.Get(),glow.GetAddressOf());if(glow)target_->FillRectangle(D2D1::RectF(0,0,width_,height_),glow.Get());
     ComPtr<ID2D1RadialGradientBrush> lowerGlow;float gy=height_+90+std::cos(time_*.18f)*28.f;
     target_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(width_*.35f,gy),D2D1::Point2F(0,0),430,260),collection.Get(),lowerGlow.GetAddressOf());if(lowerGlow)target_->FillRectangle(D2D1::RectF(0,0,width_,height_),lowerGlow.Get());
     renderSidebar();renderTitlebar();Rect area{246,60,width_-276,height_-88};
-    ComPtr<ID2D1Layer> layer;target_->CreateLayer(layer.GetAddressOf());float pageAlpha=(page_==2?1.f:transition_*transition_*(3.f-2.f*transition_))*introAnim_;
-    auto params=D2D1::LayerParameters(D2D1::InfiniteRect(),nullptr,D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,D2D1::Matrix3x2F::Identity(),pageAlpha);target_->PushLayer(params,layer.Get());
-    if(page_==0)renderHome(area);else if(page_==1)renderModules(area);else renderSettings(area);target_->PopLayer();if(onboardingAnim_>.01f)renderOnboarding();
+    ComPtr<ID2D1Layer> layer;target_->CreateLayer(layer.GetAddressOf());
+    float pageProgress=smoothStep(transition_);float pageAlpha=pageProgress*introAnim_;
+    float pageOffset=(1.f-pageProgress)*18.f*static_cast<float>(pageSlideDirection);
+    auto params=D2D1::LayerParameters(D2D1::InfiniteRect(),nullptr,D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,D2D1::Matrix3x2F::Translation(pageOffset,0),pageAlpha);target_->PushLayer(params,layer.Get());
+    if(page_==0)renderHome(area);else if(page_==1)renderModules(area);else renderSettings(area);target_->PopLayer();if(core_.updateRequired())renderUpdateRequired();else if(onboardingAnim_>.01f)renderOnboarding();
     HRESULT result=target_->EndDraw();if(result==D2DERR_RECREATE_TARGET){avatarBitmap_.Reset();logoBitmap_.Reset();brush_.Reset();target_.Reset();}EndPaint(hwnd_,&paint);
 }
 
@@ -649,13 +802,24 @@ void App::click(float x, float y) {
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         const auto& hit = *it;
         if (!hit.rect.contains(x, y)) continue;
+        if (core_.updateRequired() && hit.type != HitType::DiscordUpdate && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
         if (firstRun_ && hit.type != HitType::Continue && hit.type != HitType::Avatar && hit.type != HitType::Close) return;
         if (busy_ && hit.type != HitType::Launch && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
-        if (transition_ < .72f && hit.type != HitType::Nav && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
+        if (transition_ < .94f && hit.type != HitType::Nav && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
         switch (hit.type) {
             case HitType::Close: DestroyWindow(hwnd_); break;
             case HitType::Minimize: ShowWindow(hwnd_, SW_MINIMIZE); break;
-            case HitType::Nav: versionDropdownOpen_=false; page_ = static_cast<int>(hit.index); transition_ = 0; updateEditVisibility(); break;
+            case HitType::Nav: {
+                int nextPage = static_cast<int>(hit.index);
+                if (nextPage != page_) {
+                    pageSlideDirection = nextPage > page_ ? 1 : -1;
+                    versionDropdownOpen_ = false;
+                    page_ = nextPage;
+                    transition_ = 0.f;
+                    updateEditVisibility();
+                }
+                break;
+            }
             case HitType::Browse: browseFolder(); break;
             case HitType::Avatar: chooseAvatar(); break;
             case HitType::Continue:
@@ -674,6 +838,15 @@ void App::click(float x, float y) {
             case HitType::DismissDropdown:
                 versionDropdownOpen_=false;
                 break;
+            case HitType::Theme:
+                core_.settings().theme = static_cast<int>(hit.index);
+                activeTheme = core_.settings().theme;
+                applyWindowTheme();
+                core_.saveSettings();
+                InvalidateRect(nickEdit_, nullptr, TRUE);
+                InvalidateRect(pathEdit_, nullptr, TRUE);
+                break;
+            case HitType::DiscordUpdate: openUpdateChannel(); break;
             case HitType::Ram:
                 ramDragging_ = true;
                 SetCapture(hwnd_);
@@ -692,6 +865,10 @@ void App::setMemoryFromX(float x) {
     const float trackW = std::max(1.f, width_ - 510.f);
     float t = std::clamp((x - trackX) / trackW, 0.f, 1.f);
     core_.settings().ramMb = 2048 + static_cast<int>(std::round(t * 28.f)) * 512;
+    if (ramDragging_) {
+        ramVisualMb_ = static_cast<float>(core_.settings().ramMb);
+        ramVelocity_ = 0.f;
+    }
 }
 
 void App::syncEditsToCore() {
@@ -704,8 +881,9 @@ void App::syncCoreToEdits() {
 }
 
 void App::updateEditVisibility() {
-    bool settings = page_ == 2 && !firstRun_;
-    ShowWindow(nickEdit_, (settings || firstRun_) ? SW_SHOW : SW_HIDE);
+    bool blocked = core_.updateRequired();
+    bool settings = page_ == 2 && !firstRun_ && !blocked && transition_ > .82f;
+    ShowWindow(nickEdit_, (settings || (firstRun_ && !blocked)) ? SW_SHOW : SW_HIDE);
     ShowWindow(pathEdit_, settings ? SW_SHOW : SW_HIDE);
     if (firstRun_) {
         SetWindowPos(nickEdit_, HWND_TOP, static_cast<int>(width_/2 - 147), static_cast<int>(height_/2 + 103), 294, 32, SWP_SHOWWINDOW);
