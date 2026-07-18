@@ -1,6 +1,6 @@
 {
   "launcher": {
-    "minimumVersion": "1.1.0",
+    "minimumVersion": "1.0.1",
     "branding": {
       "title": "Neverlose Loader",
       "accent": "#178BFF"
