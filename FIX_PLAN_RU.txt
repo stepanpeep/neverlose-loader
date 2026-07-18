@@ -23,7 +23,7 @@ SECURITY + CRASH HOTFIX 1.0.3
 
 ВАЖНО ПРО MANIFEST
 Лоадер читает не локальный manifest/manifest.example.json, а файл из ветки main на GitHub:
-https://api.github.com/repos/stepanpeep/neverlose-loader/contents/manifest/manifest.example.json?ref=main
+https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json
 Поэтому изменение локального JSON начнёт действовать только после git add, commit и успешного git push.
 
 ТЕСТЫ

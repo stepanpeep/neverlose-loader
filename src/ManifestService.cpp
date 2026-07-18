@@ -87,39 +87,38 @@ void saveCache(const std::string& data) {
     }
 }
 
-bool fetchHttpOnce(const std::wstring& source, DWORD accessType, std::string& data, std::wstring& error, size_t maximumBytes) {
+bool fetchHttpOnce(const std::wstring& source, std::string& data, std::wstring& error,
+                   size_t maximumBytes, DWORD& failureCode) {
     data.clear();
+    error.clear();
+    failureCode = ERROR_SUCCESS;
+
     URL_COMPONENTS parts{};
     parts.dwStructSize = sizeof(parts);
     parts.dwHostNameLength = static_cast<DWORD>(-1);
     parts.dwUrlPathLength = static_cast<DWORD>(-1);
     parts.dwExtraInfoLength = static_cast<DWORD>(-1);
     if (!WinHttpCrackUrl(source.c_str(), static_cast<DWORD>(source.size()), 0, &parts)) {
-        error = L"Invalid URL: " + windowsError(GetLastError());
+        failureCode = GetLastError();
+        error = L"Invalid URL: " + windowsError(failureCode);
         return false;
     }
 
-    HINTERNET session = WinHttpOpen(L"NeverloseLoader/1.0.3", accessType, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET session = WinHttpOpen(L"NeverloseLoader/1.0.3", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                                    WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session) {
-        error = L"WinHTTP initialization failed: " + windowsError(GetLastError());
+        failureCode = GetLastError();
+        error = L"WinHTTP initialization failed: " + windowsError(failureCode);
         return false;
     }
+    WinHttpSetTimeouts(session, 8000, 8000, 15000, 30000);
 
     std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
-    bool githubApi = host == L"api.github.com";
-    bool smallRequest = maximumBytes <= 16 * 1024 * 1024;
-    WinHttpSetTimeouts(session,
-                       smallRequest ? 3000 : 6000,
-                       smallRequest ? 3500 : 6000,
-                       smallRequest ? 5000 : 12000,
-                       smallRequest ? (githubApi ? 7000 : 9000) : 30000);
-    DWORD connectRetries = 1;
-    WinHttpSetOption(session, WINHTTP_OPTION_CONNECT_RETRIES, &connectRetries, sizeof(connectRetries));
     HINTERNET connection = WinHttpConnect(session, host.c_str(), parts.nPort, 0);
     if (!connection) {
-        DWORD code = GetLastError();
+        failureCode = GetLastError();
+        error = L"Connection failed: " + windowsError(failureCode);
         WinHttpCloseHandle(session);
-        error = L"Connection failed: " + windowsError(code);
         return false;
     }
 
@@ -128,64 +127,43 @@ bool fetchHttpOnce(const std::wstring& source, DWORD accessType, std::string& da
     if (parts.dwExtraInfoLength) path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
     if (path.empty()) path = L"/";
     DWORD flags = parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
-    const wchar_t* accepted[] = {L"application/vnd.github.raw+json", L"application/json", L"text/plain", L"*/*", nullptr};
-    HINTERNET request = WinHttpOpenRequest(connection, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, accepted, flags);
+    HINTERNET request = WinHttpOpenRequest(connection, L"GET", path.c_str(), nullptr,
+                                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
     if (!request) {
-        DWORD code = GetLastError();
+        failureCode = GetLastError();
+        error = L"Request creation failed: " + windowsError(failureCode);
         WinHttpCloseHandle(connection);
         WinHttpCloseHandle(session);
-        error = L"Request creation failed: " + windowsError(code);
         return false;
     }
 
-    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
-    WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
-#ifdef WINHTTP_OPTION_DECOMPRESSION
-    DWORD decompression = WINHTTP_DECOMPRESSION_FLAG_GZIP | WINHTTP_DECOMPRESSION_FLAG_DEFLATE;
-    WinHttpSetOption(request, WINHTTP_OPTION_DECOMPRESSION, &decompression, sizeof(decompression));
-#endif
-
-    const wchar_t* headers = L"Accept: application/vnd.github.raw+json, application/json, text/plain, */*\r\nX-GitHub-Api-Version: 2022-11-28\r\nCache-Control: no-cache, no-store, max-age=0\r\nPragma: no-cache\r\nConnection: close\r\n";
-    if (!WinHttpSendRequest(request, headers, static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
-        DWORD code = GetLastError();
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
-        WinHttpCloseHandle(session);
-        error = L"Send failed: " + windowsError(code);
-        return false;
-    }
-    if (!WinHttpReceiveResponse(request, nullptr)) {
-        DWORD code = GetLastError();
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
-        WinHttpCloseHandle(session);
-        error = L"Response failed: " + windowsError(code);
-        return false;
+    bool success = false;
+    if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+        failureCode = GetLastError();
+        error = L"Send failed: " + windowsError(failureCode);
+    } else if (!WinHttpReceiveResponse(request, nullptr)) {
+        failureCode = GetLastError();
+        error = L"Response failed: " + windowsError(failureCode);
+    } else {
+        DWORD status = 0;
+        DWORD statusSize = sizeof(status);
+        if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                 nullptr, &status, &statusSize, nullptr)) {
+            failureCode = GetLastError();
+            error = L"Status query failed: " + windowsError(failureCode);
+        } else if (status < 200 || status >= 300) {
+            error = L"Server returned HTTP " + std::to_wstring(status);
+        } else {
+            success = true;
+        }
     }
 
-    DWORD status = 0;
-    DWORD statusSize = sizeof(status);
-    if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &status, &statusSize, nullptr)) {
-        DWORD code = GetLastError();
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
-        WinHttpCloseHandle(session);
-        error = L"Status query failed: " + windowsError(code);
-        return false;
-    }
-    if (status < 200 || status >= 300) {
-        WinHttpCloseHandle(request);
-        WinHttpCloseHandle(connection);
-        WinHttpCloseHandle(session);
-        error = L"Server returned HTTP " + std::to_wstring(status);
-        return false;
-    }
-
-    bool success = true;
     while (success) {
         DWORD available = 0;
         if (!WinHttpQueryDataAvailable(request, &available)) {
-            error = L"Read failed: " + windowsError(GetLastError());
+            failureCode = GetLastError();
+            error = L"Read failed: " + windowsError(failureCode);
             success = false;
             break;
         }
@@ -199,19 +177,27 @@ bool fetchHttpOnce(const std::wstring& source, DWORD accessType, std::string& da
         data.resize(offset + available);
         DWORD received = 0;
         if (!WinHttpReadData(request, data.data() + offset, available, &received)) {
-            error = L"Read failed: " + windowsError(GetLastError());
+            failureCode = GetLastError();
+            error = L"Read failed: " + windowsError(failureCode);
             success = false;
             break;
         }
         data.resize(offset + received);
+        if (!received) {
+            failureCode = ERROR_WINHTTP_CONNECTION_ERROR;
+            error = L"Connection closed before the response was complete: " + windowsError(failureCode);
+            success = false;
+            break;
+        }
     }
 
     WinHttpCloseHandle(request);
     WinHttpCloseHandle(connection);
     WinHttpCloseHandle(session);
     if (success && data.empty()) {
-        error = L"Server returned an empty response";
-        return false;
+        failureCode = ERROR_WINHTTP_CONNECTION_ERROR;
+        error = L"Server returned an empty response: " + windowsError(failureCode);
+        success = false;
     }
     return success;
 }
@@ -246,14 +232,18 @@ bool ManifestService::fetchBytes(const std::wstring& source, std::string& data, 
         return readFile(path, data, error, maximumBytes);
     }
 
-    std::wstring directError;
-    if (fetchHttpOnce(source, WINHTTP_ACCESS_TYPE_NO_PROXY, data, directError, maximumBytes)) return true;
-    Sleep(120);
-
-    std::wstring proxyError;
-    if (fetchHttpOnce(source, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, data, proxyError, maximumBytes)) return true;
-    error = directError;
-    if (!proxyError.empty() && proxyError != directError) error += L"; configured proxy: " + proxyError;
+    DWORD failureCode = ERROR_SUCCESS;
+    std::wstring lastError;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        if (fetchHttpOnce(source, data, lastError, maximumBytes, failureCode)) return true;
+        bool transient = failureCode == ERROR_WINHTTP_TIMEOUT ||
+                         failureCode == ERROR_WINHTTP_CONNECTION_ERROR ||
+                         failureCode == ERROR_WINHTTP_CANNOT_CONNECT ||
+                         failureCode == ERROR_WINHTTP_NAME_NOT_RESOLVED;
+        if (!transient || attempt == 1) break;
+        Sleep(350);
+    }
+    error = lastError.empty() ? L"Unable to download data" : lastError;
     return false;
 }
 

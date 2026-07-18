@@ -55,7 +55,7 @@ struct LauncherSettings {
     std::wstring language = L"en";
     std::wstring installDir = L"C:\\NeverloseClient";
     std::wstring javaMode = L"auto";
-    std::wstring manifestUrl = L"https://api.github.com/repos/stepanpeep/neverlose-loader/contents/manifest/manifest.example.json?ref=main";
+    std::wstring manifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
     std::wstring selectedVersion = L"1.21";
     std::wstring selectedPreset;
     int theme = 1;
