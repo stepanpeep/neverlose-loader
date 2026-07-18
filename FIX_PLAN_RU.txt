@@ -1,0 +1,47 @@
+SECURITY + CRASH HOTFIX 1.2.1
+
+ИСПРАВЛЕНО
+1. Manifest работает по принципу fail-closed: без свежей онлайн-проверки запуск клиента невозможен.
+2. Перед каждым запуском выполняется повторная проверка официального raw GitHub manifest.
+3. Кэш используется только для показа интерфейса и никогда не разрешает запуск.
+4. Убран резервный CDN из проверки доступа, потому что CDN мог отдавать устаревший maintenance/version.
+5. Поддерживаются обе формы maintenance:
+   "maintenance": true
+   "maintenance": { "enabled": true, "message": "..." }
+6. Изменение launcher.version ИЛИ launcher.minimumVersion на любое другое значение вызывает Update required.
+7. Manifest без обоих полей version/minimumVersion отклоняется, запуск блокируется.
+8. К URL добавляется уникальный параметр, поэтому старый GitHub-кэш не скрывает изменения.
+9. Все Direct2D CreateLayer/PushLayer/PopLayer защищены проверками результата.
+10. Создание App перенесено из main.cpp в App.cpp, чтобы изменение размера App больше не повреждало память при stale main.obj.
+11. build-release.bat обязательно удаляет build и out/build перед сборкой.
+
+КАК ПРИМЕНИТЬ
+1. Закрыть Visual Studio и NeverloseLoader.exe.
+2. Распаковать архив поверх ПОЛНОГО проекта с заменой.
+3. Запустить build-release.bat.
+4. Запускать только build/Release/NeverloseLoader.exe. Старые EXE из out/build удалить.
+
+ВАЖНО ПРО MANIFEST
+Лоадер читает не локальный manifest/manifest.example.json, а файл из ветки main на GitHub:
+https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json
+Поэтому изменение локального JSON начнёт действовать только после git add, commit и успешного git push.
+
+ТЕСТЫ
+A. Нормальный режим:
+   launcher.version = 1.2.1
+   launcher.minimumVersion = 1.2.1
+   maintenance.enabled = false
+
+B. Обязательное обновление:
+   изменить launcher.version ИЛИ launcher.minimumVersion на 9.9.9, commit + push.
+   Лоадер должен показать Update required и разрешить только Discord/закрытие.
+
+C. Maintenance:
+   установить maintenance.enabled = true, commit + push.
+   Лоадер должен показать Client maintenance, заблокировать Launch и оставить кнопку Close loader.
+   Также поддерживается короткая форма: "maintenance": true.
+
+D. Нет сети:
+   Лоадер должен показать Connection required. Кэш не должен разрешать Launch.
+
+Перед публикацией вернуть version/minimumVersion в 1.2.1 и maintenance.enabled в false, собрать и проверить Release.

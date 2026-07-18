@@ -1,4 +1,5 @@
 #include "LauncherCore.h"
+#include "JavaRuntimeService.h"
 #include "Utf.h"
 #include <windows.h>
 #include <bcrypt.h>
@@ -11,7 +12,17 @@
 
 namespace {
 constexpr const wchar_t* kOfficialManifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
-constexpr const wchar_t* kLauncherVersion = L"1.1.0";
+constexpr const wchar_t* kLauncherVersion = L"1.2.1";
+std::atomic_bool onlineManifestVerified{false};
+
+std::wstring freshUrl(const wchar_t* base) {
+    FILETIME time{};
+    GetSystemTimeAsFileTime(&time);
+    ULARGE_INTEGER value{};
+    value.LowPart = time.dwLowDateTime;
+    value.HighPart = time.dwHighDateTime;
+    return std::wstring(base) + L"?nl=" + std::to_wstring(value.QuadPart);
+}
 
 std::vector<int> versionParts(const std::wstring& value) {
     std::vector<int> parts;
@@ -27,14 +38,13 @@ std::vector<int> versionParts(const std::wstring& value) {
     return parts;
 }
 
-bool versionLess(const std::wstring& left, const std::wstring& right) {
-    auto a = versionParts(left);
-    auto b = versionParts(right);
-    size_t count = std::max(a.size(), b.size());
-    a.resize(count, 0);
-    b.resize(count, 0);
-    return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+bool requiresUpdate(const LauncherManifest& manifest) {
+    const auto current = versionParts(kLauncherVersion);
+    if (!manifest.latestVersion.empty() && current != versionParts(manifest.latestVersion)) return true;
+    if (!manifest.minimumVersion.empty() && current != versionParts(manifest.minimumVersion)) return true;
+    return false;
 }
+
 void removeLegacyManagedState(const std::filesystem::path& root) {
     std::error_code ignored;
     const auto state = root / L"mods" / L".neverlose-managed.txt";
@@ -53,10 +63,17 @@ bool LauncherCore::bootstrap() {
 }
 
 bool LauncherCore::refreshManifest() {
+    onlineManifestVerified = false;
+    LauncherManifest next;
+    std::wstring primaryError;
+    std::wstring cacheError;
+    bool loaded = manifestService_.load(freshUrl(kOfficialManifestUrl), next, primaryError);
     settings_.manifestUrl = kOfficialManifestUrl;
-    LauncherManifest next; std::wstring error;
-    if (!manifestService_.load(kOfficialManifestUrl, next, error)) {
-        status_ = L"Unable to load configuration: " + error; return false;
+    if (loaded) onlineManifestVerified = true;
+    else loaded = manifestService_.loadCached(next, cacheError);
+    if (!loaded) {
+        status_ = L"Unable to verify online manifest: " + primaryError;
+        return false;
     }
     manifest_ = std::move(next);
     size_t versionIndex = selectedVersionIndex();
@@ -68,14 +85,17 @@ bool LauncherCore::refreshManifest() {
     if (manifest_.presets.empty()) settings_.selectedPreset.clear();
     else if (selectedPresetIndex() >= manifest_.presets.size()) settings_.selectedPreset = manifest_.presets.front().id;
     applyPreset();
-    status_ = manifest_.maintenance ? (manifest_.maintenanceMessage.empty() ? L"Maintenance" : manifest_.maintenanceMessage) : L"Ready to launch";
+    if (!onlineManifestVerified) status_ = L"Online manifest verification failed. Launch is blocked.";
+    else status_ = manifest_.maintenance ? (manifest_.maintenanceMessage.empty() ? L"Maintenance" : manifest_.maintenanceMessage) : L"Ready to launch";
     return true;
 }
 
 const wchar_t* LauncherCore::currentVersion() { return kLauncherVersion; }
 
+bool LauncherCore::manifestVerifiedOnline() const { return onlineManifestVerified.load(); }
+
 bool LauncherCore::updateRequired() const {
-    return !manifest_.minimumVersion.empty() && versionLess(kLauncherVersion, manifest_.minimumVersion);
+    return requiresUpdate(manifest_);
 }
 
 bool LauncherCore::saveSettings() {
@@ -146,6 +166,12 @@ std::wstring LauncherCore::offlineUuid(const std::wstring& nickname) {
 }
 
 bool LauncherCore::launch(std::atomic_bool& cancelled, ArtifactDownloader::Progress progress) {
+    LauncherManifest accessManifest;
+    std::wstring accessError;
+    onlineManifestVerified = manifestService_.load(freshUrl(kOfficialManifestUrl), accessManifest, accessError);
+    if (!onlineManifestVerified.load()) { status_ = L"Online manifest verification is required before launch: " + accessError; return false; }
+    if (requiresUpdate(accessManifest)) { status_ = L"Loader update required"; return false; }
+    if (accessManifest.maintenance) { status_ = accessManifest.maintenanceMessage.empty() ? L"The loader is under maintenance" : accessManifest.maintenanceMessage; return false; }
     if (updateRequired()) { status_ = L"Loader update required"; return false; }
     if (manifest_.maintenance) { status_ = manifest_.maintenanceMessage.empty() ? L"The loader is under maintenance" : manifest_.maintenanceMessage; return false; }
     if (settings_.nickname.empty()) { status_ = L"Enter a Minecraft nickname"; return false; }
@@ -173,9 +199,10 @@ bool LauncherCore::launch(std::atomic_bool& cancelled, ArtifactDownloader::Progr
     if (cancelled) { status_ = L"Operation cancelled"; return false; }
     removeLegacyManagedState(settings_.installDir);
 
-    std::filesystem::path localJava = std::filesystem::path(settings_.installDir) / L"runtime" / L"bin" / L"javaw.exe";
-    std::wstring java = std::filesystem::exists(localJava) ? localJava.wstring() : GameInstaller::findJava();
-    if (java.empty()) { status_ = L"Java 21 was not found. Install Temurin 21 or place Java in runtime/bin"; return false; }
+    JavaRuntimeService javaRuntime;
+    std::wstring java;
+    status_ = L"Checking Java 21 runtime";
+    if (!javaRuntime.resolve(settings_.installDir, settings_.javaMode, cancelled, progress, java, status_)) return false;
 
     std::wstring classpath;
     for (const auto& relative : install.classpath) {

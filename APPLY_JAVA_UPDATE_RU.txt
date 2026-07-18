@@ -1,0 +1,24 @@
+JAVA RUNTIME UPDATE 1.2.0
+
+Что добавлено:
+- быстрый выбор Auto / Bundled 21 / System в Settings;
+- проверка реальной версии Java перед запуском;
+- автоматическая загрузка официальной Java 21 через Adoptium API;
+- проверка SHA-256 загруженного архива;
+- автоматическая распаковка в <Game directory>/runtime;
+- повторное использование скачанного архива из <Game directory>/.cache/java;
+- если System Java отсутствует или имеет неверную версию, лоадер автоматически устанавливает Bundled Java 21;
+- сохранение JavaMode в launcher.ini;
+- сетевой hotfix с TLS 1.2, прямым повтором, резервным CDN и кэшем манифеста;
+- версия лоадера 1.2.0.
+
+Установка:
+1. Распаковать этот архив поверх ПОЛНОГО проекта с заменой файлов.
+2. Закрыть Visual Studio и старый NeverloseLoader.exe.
+3. Запустить build-release.bat, чтобы выполнить чистую сборку.
+4. Проверить build/Release/NeverloseLoader.exe.
+5. Проверить Auto и Bundled 21 на компьютере без Java 21.
+6. Создать GitHub Release loader-1.2.0 и прикрепить новый EXE.
+7. Только после публикации изменить minimumVersion в обоих manifest-файлах на 1.2.0.
+
+minimumVersion намеренно не изменён до публикации готового Release.

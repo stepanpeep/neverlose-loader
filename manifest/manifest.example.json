@@ -1,17 +1,20 @@
 {
   "launcher": {
-    "minimumVersion": "1.0.2",
+    "version": "1.2.1",
+    "minimumVersion": "1.2.1",
     "branding": {
       "title": "Neverlose Loader",
       "accent": "#178BFF"
-    }
+    },
+    "updateUrl": "https://discord.gg/WbZarvYWgX",
+    "updateMessage": "This loader version is outdated. Download the latest build from our Discord."
   },
   "maintenance": {
-    "enabled": true,
-    "message": "Клиент на обнове ептеть. Please try again later."
+    "enabled": false,
+    "message": "The client is temporarily unavailable due to maintenance."
   },
   "settings": {
-    "defaultRamMb": 6096,
+    "defaultRamMb": 4096,
     "defaultInstallDir": "C:/NeverloseClient",
     "defaultLanguage": "ru"
   },
@@ -131,8 +134,8 @@
       "artifacts": [
         {
           "path": "mods/fabric-loader 6.17+.jar",
-          "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.1/neverlose.jar",
-          "sha256": "1671a2551401bc51c65b029b5639ee6f5bfe90b96378524eb2d70259c2e585bb"
+          "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.0/nl.jar",
+          "sha256": "ae84be50fb30f4d4c44e7278e330b1c72f5ec8d6218be64f5a1df616efbf9125"
         }
       ],
       "mainClass": "",

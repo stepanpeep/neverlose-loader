@@ -39,6 +39,7 @@ struct VersionEntry {
 struct LauncherManifest {
     bool maintenance = false;
     std::wstring maintenanceMessage;
+    std::wstring latestVersion;
     std::wstring minimumVersion;
     std::wstring updateUrl = L"https://discord.gg/WbZarvYWgX";
     std::wstring updateMessage = L"This loader version is outdated. Install the latest build.";
@@ -53,6 +54,7 @@ struct LauncherSettings {
     std::wstring avatarPath;
     std::wstring language = L"en";
     std::wstring installDir = L"C:\\NeverloseClient";
+    std::wstring javaMode = L"auto";
     std::wstring manifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
     std::wstring selectedVersion = L"1.21";
     std::wstring selectedPreset;

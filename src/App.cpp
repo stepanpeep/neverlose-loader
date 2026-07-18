@@ -14,7 +14,9 @@ namespace {
 int activeTheme = 1;
 float animationDelta = 1.f / 60.f;
 float themeAnimation[3]{};
+float javaModeAnimation[3]{};
 float updateAnimation = 0.f;
+float serviceBlockAnimation = 0.f;
 int pageSlideDirection = 1;
 ULONGLONG lastAnimationTick = 0;
 bool trackingMouse = false;
@@ -191,6 +193,8 @@ LRESULT App::handle(UINT msg, WPARAM w, LPARAM l) {
             moduleScroll_ = smoothTo(moduleScroll_, moduleScrollTarget_, 13.f, animationDelta);
             onboardingAnim_ = smoothTo(onboardingAnim_, firstRun_ ? 1.f : 0.f, 11.f, animationDelta);
             updateAnimation = smoothTo(updateAnimation, core_.updateRequired() ? 1.f : 0.f, 10.f, animationDelta);
+            bool serviceBlocked = core_.manifest().maintenance || !core_.manifestVerifiedOnline();
+            serviceBlockAnimation = smoothTo(serviceBlockAnimation, serviceBlocked ? 1.f : 0.f, 10.f, animationDelta);
             if (!versionDropdownOpen_) for (float& value : versionItemAnim_) value = smoothTo(value, 0.f, 18.f, animationDelta);
             if (std::abs(1.f - transition_) < .001f) transition_ = 1.f;
             if (std::abs(moduleScrollTarget_ - moduleScroll_) < .05f) moduleScroll_ = moduleScrollTarget_;
@@ -209,7 +213,7 @@ LRESULT App::handle(UINT msg, WPARAM w, LPARAM l) {
                     ramVelocity_ = 0.f;
                 }
             }
-            if (page_ == 2 || firstRun_ || core_.updateRequired()) updateEditVisibility();
+            if (page_ == 2 || firstRun_ || core_.updateRequired() || core_.manifest().maintenance || !core_.manifestVerifiedOnline()) updateEditVisibility();
             if (!IsIconic(hwnd_)) RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE | RDW_NOCHILDREN);
             return 0;
         }
@@ -536,8 +540,10 @@ void App::renderHome(Rect area) {
         float panelY=build.y+build.h+7,panelH=(12.f+count*44.f)*versionDropdownAnim_;
         addHit({0,48,width_,height_-48},HitType::DismissDropdown);
         addHit(build,HitType::VersionDropdown);
-        ComPtr<ID2D1Layer> dropdownLayer;target_->CreateLayer(dropdownLayer.GetAddressOf());
-        auto dropdownParams=D2D1::LayerParameters(D2D1::RectF(build.x,panelY,build.x+build.w,panelY+panelH));target_->PushLayer(dropdownParams,dropdownLayer.Get());
+        ComPtr<ID2D1Layer> dropdownLayer;
+        bool dropdownLayerPushed=SUCCEEDED(target_->CreateLayer(dropdownLayer.GetAddressOf()))&&dropdownLayer.Get()!=nullptr;
+        auto dropdownParams=D2D1::LayerParameters(D2D1::RectF(build.x,panelY,build.x+build.w,panelY+panelH));
+        if(dropdownLayerPushed)target_->PushLayer(dropdownParams,dropdownLayer.Get());
         roundRect({build.x,panelY,build.w,12.f+count*44.f},13,color(0x091326,.995f),1,color(0x315083,.92f));
         for(size_t i=0;i<count;++i){
             const auto& version=core_.manifest().versions[i];Rect row{build.x+6,panelY+6+i*44.f,build.w-12,38};
@@ -550,7 +556,7 @@ void App::renderHome(Rect area) {
             drawText(badge,{row.x+row.w-91,row.y+8,77,22},version.available?color(0x72A8FF):color(0x7B8494),smallFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
             if(versionDropdownAnim_>.82f)addHit(row,HitType::VersionItem,i);
         }
-        target_->PopLayer();
+        if(dropdownLayerPushed)target_->PopLayer();
     }
 }
 
@@ -577,8 +583,10 @@ void App::renderModules(Rect area) {
     moduleScrollTarget_=std::clamp(moduleScrollTarget_,0.f,maximumScroll);
     moduleScroll_=std::clamp(moduleScroll_,0.f,maximumScroll);
     float startY=area.y+178-moduleScroll_;
-    ComPtr<ID2D1Layer> listLayer;target_->CreateLayer(listLayer.GetAddressOf());
-    auto listParams=D2D1::LayerParameters(D2D1::RectF(area.x,listTop,area.x+area.w,listBottom));target_->PushLayer(listParams,listLayer.Get());
+    ComPtr<ID2D1Layer> listLayer;
+    bool listLayerPushed=SUCCEEDED(target_->CreateLayer(listLayer.GetAddressOf()))&&listLayer.Get()!=nullptr;
+    auto listParams=D2D1::LayerParameters(D2D1::RectF(area.x,listTop,area.x+area.w,listBottom));
+    if(listLayerPushed)target_->PushLayer(listParams,listLayer.Get());
     for(size_t i=0;i<core_.manifest().modules.size();++i){
         int col=static_cast<int>(i%2),row=static_cast<int>(i/2);
         Rect card{area.x+col*(area.w/2+7),startY+row*94,area.w/2-7,82};
@@ -600,7 +608,7 @@ void App::renderModules(Rect area) {
         roundRect({toggle.x+2+17*toggleA,toggle.y+2,16,16},8,color(0xEEF4FF),1,color(0xFFFFFF,.25f));
         if(visible)addHit(card,HitType::Module,i);
     }
-    target_->PopLayer();
+    if(listLayerPushed)target_->PopLayer();
     if(maximumScroll>0){
         float railH=listBottom-listTop;float thumbH=std::max(42.f,railH*railH/(railH+maximumScroll));
         float thumbY=listTop+(railH-thumbH)*(moduleScroll_/maximumScroll);
@@ -611,7 +619,7 @@ void App::renderModules(Rect area) {
 void App::renderSettings(Rect area) {
     drawText(L"Settings", {area.x, area.y, area.w, 42}, color(0xF5F8FF), displayFont_.Get());
     drawText(L"Profile, appearance, installation and runtime.", {area.x, area.y + 42, area.w, 23}, color(0x6F83A8), bodyFont_.Get());
-    Rect panel{area.x,area.y+88,area.w,382};roundRect(panel,16,color(0x0A1122),1,color(0x263A62,.72f));
+    Rect panel{area.x,area.y+88,area.w,450};roundRect(panel,16,color(0x0A1122),1,color(0x263A62,.72f));
     drawText(L"PROFILE",{panel.x+24,panel.y+20,160,18},color(0x526A94),smallFont_.Get());
     drawText(L"Minecraft nickname",{panel.x+24,panel.y+54,175,24},color(0xA9B9D3),bodyFont_.Get());
     roundRect({panel.x+210,panel.y+48,panel.w-234,38},10,color(0x0A1020),1,color(0x2B416B,.72f));
@@ -620,11 +628,27 @@ void App::renderSettings(Rect area) {
     drawText(L"Game directory",{panel.x+24,panel.y+157,175,24},color(0xA9B9D3),bodyFont_.Get());
     roundRect({panel.x+210,panel.y+151,panel.w-286,38},10,color(0x0A1020),1,color(0x2B416B,.72f));
     Rect browse{panel.x+panel.w-60,panel.y+151,36,38};bool browseHover=browse.contains(hoverX_,hoverY_);actionAnim_[0] = smoothTo(actionAnim_[0], browseHover ? 1.f : 0.f, 17.f, animationDelta);roundRect(browse,10,browseHover?color(0x17376E):color(0x101C34),1,color(0x3C6DB5,.55f+.3f*actionAnim_[0]));drawIcon(Icon::Folder,{browse.x,browse.y-actionAnim_[0],browse.w,browse.h},color(0x76A6F7));addHit(browse,HitType::Browse);
-    drawText(L"APPEARANCE",{panel.x+24,panel.y+207,175,18},color(0x526A94),smallFont_.Get());
+    drawText(L"JAVA RUNTIME",{panel.x+24,panel.y+207,175,18},color(0x526A94),smallFont_.Get());
+    const wchar_t* javaNames[] = {L"Auto", L"Bundled 21", L"System"};
+    const wchar_t* javaModes[] = {L"auto", L"bundled", L"system"};
+    float javaWidth = (panel.w - 250.f) / 3.f;
+    for (size_t i = 0; i < 3; ++i) {
+        Rect javaCard{panel.x + 210 + i * (javaWidth + 8), panel.y + 197, javaWidth, 40};
+        bool selected = core_.settings().javaMode == javaModes[i];
+        bool hover = javaCard.contains(hoverX_, hoverY_);
+        javaModeAnimation[i] = smoothTo(javaModeAnimation[i], (selected || hover) ? 1.f : 0.f, 16.f, animationDelta);
+        float state = javaModeAnimation[i];
+        roundRect(javaCard, 8, selected ? color(0x15356D) : color(0x0A1020), 1, selected ? color(0x4A8BFF, .8f) : color(0x2B416B, .62f + .28f * state));
+        if (state > .01f) roundRect({javaCard.x + 1, javaCard.y + javaCard.h - 3, javaCard.w - 2, 2}, 1, color(0x4A8BFF, .42f * state));
+        if (selected) roundRect({javaCard.x + 10, javaCard.y + 15, 10, 10}, 5, color(0x5A95FF));
+        drawText(javaNames[i], {javaCard.x + (selected ? 22.f : 6.f), javaCard.y, javaCard.w - (selected ? 26.f : 12.f), javaCard.h}, selected ? color(0xEAF1FF) : color(0x91A2BD), smallFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+        addHit(javaCard, HitType::JavaMode, i);
+    }
+    drawText(L"APPEARANCE",{panel.x+24,panel.y+275,175,18},color(0x526A94),smallFont_.Get());
     const wchar_t* themeNames[] = {L"Soft light", L"Blue", L"Dark"};
     float themeWidth = (panel.w - 250.f) / 3.f;
     for (size_t i = 0; i < 3; ++i) {
-        Rect themeCard{panel.x + 210 + i * (themeWidth + 8), panel.y + 197, themeWidth, 40};
+        Rect themeCard{panel.x + 210 + i * (themeWidth + 8), panel.y + 265, themeWidth, 40};
         bool selected = core_.settings().theme == static_cast<int>(i);
         bool hover = themeCard.contains(hoverX_, hoverY_);
         themeAnimation[i] = smoothTo(themeAnimation[i], (selected || hover) ? 1.f : 0.f, 16.f, animationDelta);
@@ -635,11 +659,11 @@ void App::renderSettings(Rect area) {
         drawText(themeNames[i], {themeCard.x + (selected ? 22.f : 6.f), themeCard.y, themeCard.w - (selected ? 26.f : 12.f), themeCard.h}, selected ? color(0xEAF1FF) : color(0x91A2BD), smallFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
         addHit(themeCard, HitType::Theme, i);
     }
-    line(panel.x+24,panel.y+258,panel.x+panel.w-24,panel.y+258,color(0x223452,.65f),1);
-    drawText(L"RUNTIME MEMORY",{panel.x+24,panel.y+275,180,18},color(0x526A94),smallFont_.Get());
-    drawText(L"Memory allocation",{panel.x+24,panel.y+310,175,24},color(0xA9B9D3),bodyFont_.Get());
-    drawText(formatMemory(ramVisualMb_),{panel.x+panel.w-95,panel.y+310,70,24},color(0x72A5FF),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_TRAILING);
-    Rect track{panel.x+210,panel.y+344,panel.w-234,6};float memory=std::clamp((ramVisualMb_-2048.f)/14336.f,0.f,1.f);
+    line(panel.x+24,panel.y+326,panel.x+panel.w-24,panel.y+326,color(0x223452,.65f),1);
+    drawText(L"RUNTIME MEMORY",{panel.x+24,panel.y+343,180,18},color(0x526A94),smallFont_.Get());
+    drawText(L"Memory allocation",{panel.x+24,panel.y+378,175,24},color(0xA9B9D3),bodyFont_.Get());
+    drawText(formatMemory(ramVisualMb_),{panel.x+panel.w-95,panel.y+378,70,24},color(0x72A5FF),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_TRAILING);
+    Rect track{panel.x+210,panel.y+412,panel.w-234,6};float memory=std::clamp((ramVisualMb_-2048.f)/14336.f,0.f,1.f);
     roundRect(track,3,color(0x1A2945));roundRect({track.x,track.y,track.w*memory,6},3,color(0x357AF6));float thumb=track.x+track.w*memory;
     if(ramDragging_)roundRect({thumb-13,track.y-11,26,26},13,color(0x347BFF,.13f));
     roundRect({thumb-(ramDragging_?8.f:7.f),track.y-(ramDragging_?5.f:4.f),ramDragging_?16.f:14.f,ramDragging_?16.f:14.f},8,color(0xF1F6FF),1,color(0x4A89FF,.7f));
@@ -682,16 +706,17 @@ void App::drawAvatar(Rect rect) {
         return;
     }
     ComPtr<ID2D1EllipseGeometry> mask;
-    d2dFactory_->CreateEllipseGeometry(D2D1::Ellipse(D2D1::Point2F(rect.x + rect.w/2, rect.y + rect.h/2), rect.w/2, rect.h/2), mask.GetAddressOf());
-    ComPtr<ID2D1Layer> layer; target_->CreateLayer(layer.GetAddressOf());
+    HRESULT maskResult=d2dFactory_->CreateEllipseGeometry(D2D1::Ellipse(D2D1::Point2F(rect.x + rect.w/2, rect.y + rect.h/2), rect.w/2, rect.h/2), mask.GetAddressOf());
+    ComPtr<ID2D1Layer> layer;
+    bool avatarLayerPushed=SUCCEEDED(maskResult)&&mask.Get()!=nullptr&&SUCCEEDED(target_->CreateLayer(layer.GetAddressOf()))&&layer.Get()!=nullptr;
     auto params = D2D1::LayerParameters(D2D1::RectF(rect.x, rect.y, rect.x+rect.w, rect.y+rect.h), mask.Get());
-    target_->PushLayer(params, layer.Get());
+    if(avatarLayerPushed)target_->PushLayer(params, layer.Get());
     auto size = avatarBitmap_->GetSize();
     float side = std::min(size.width, size.height);
     float sx = (size.width - side)/2, sy = (size.height - side)/2;
     target_->DrawBitmap(avatarBitmap_.Get(), D2D1::RectF(rect.x, rect.y, rect.x+rect.w, rect.y+rect.h), 1.f,
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1::RectF(sx, sy, sx+side, sy+side));
-    target_->PopLayer();
+    if(avatarLayerPushed)target_->PopLayer();
 }
 
 void App::loadAvatar() {
@@ -726,8 +751,9 @@ void App::renderOnboarding() {
     float eased=easeOutCubic(alpha);
     brush_->SetColor(color(0x030611,.9f*alpha));target_->FillRectangle(D2D1::RectF(0,0,width_,height_),brush_.Get());
     float cardW=430,cardH=400,x=width_/2-cardW/2,y=height_/2-cardH/2+(1-eased)*18;
-    ComPtr<ID2D1Layer> onboardingLayer; target_->CreateLayer(onboardingLayer.GetAddressOf());
-    target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Identity(), alpha), onboardingLayer.Get());
+    ComPtr<ID2D1Layer> onboardingLayer;
+    bool onboardingLayerPushed=SUCCEEDED(target_->CreateLayer(onboardingLayer.GetAddressOf()))&&onboardingLayer.Get()!=nullptr;
+    if(onboardingLayerPushed)target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Identity(), alpha), onboardingLayer.Get());
     Rect card{x,y,cardW,cardH};roundRect(card,24,color(0x091224,.99f),1,color(0x2C4472,.8f));
     roundRect({x+cardW/2-36,y+25,72,72},20,color(0x102B61),1,color(0x347BFF,.52f));drawLogo({x+cardW/2-30,y+31,60,60});
     drawText(L"Welcome to Neverlose Loader",{x+30,y+111,cardW-60,34},color(0xF2F6FF),titleFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -736,7 +762,7 @@ void App::renderOnboarding() {
     Rect choose{x+cardW/2+55,y+202,92,34};roundRect(choose,10,choose.contains(hoverX_,hoverY_)?color(0x173B78):color(0x111D35),1,color(0x2D4775,.8f));drawText(L"Avatar",choose,color(0xA9BCE0),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);if(alpha>.75f)addHit(choose,HitType::Avatar);
     drawText(L"MINECRAFT NICKNAME",{x+68,y+276,294,18},color(0x526A94),smallFont_.Get());roundRect({x+68,y+300,294,40},11,color(0x0A1020),1,color(0x2B416B,.8f));
     Rect next{x+68,y+354,294,40};bool hover=next.contains(hoverX_,hoverY_);roundRect(next,11,hover?color(0x4386FF):color(0x2E6FEB),1,color(0x7AABFF,.35f));drawText(L"Continue",next,color(0xFFFFFF),buttonFont_.Get(),DWRITE_TEXT_ALIGNMENT_CENTER);if(alpha>.75f)addHit(next,HitType::Continue);
-    target_->PopLayer();
+    if(onboardingLayerPushed)target_->PopLayer();
 }
 
 void App::renderUpdateRequired() {
@@ -746,8 +772,9 @@ void App::renderUpdateRequired() {
     target_->FillRectangle(D2D1::RectF(0, 0, width_, height_), brush_.Get());
     float cardW = 500.f, cardH = 328.f;
     float x = width_ / 2 - cardW / 2, y = height_ / 2 - cardH / 2 + (1.f - eased) * 20.f;
-    ComPtr<ID2D1Layer> updateLayer; target_->CreateLayer(updateLayer.GetAddressOf());
-    target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Identity(), alpha), updateLayer.Get());
+    ComPtr<ID2D1Layer> updateLayer;
+    bool updateLayerPushed=SUCCEEDED(target_->CreateLayer(updateLayer.GetAddressOf()))&&updateLayer.Get()!=nullptr;
+    if(updateLayerPushed)target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Identity(), alpha), updateLayer.Get());
     Rect card{x, y, cardW, cardH};
     roundRect(card, 24, color(0x091224, .995f), 1, color(0x3D63A4, .82f));
     roundRect({x + 32, y + 30, 64, 64}, 18, color(0x17376F), 1, color(0x4D8BFF, .65f));
@@ -763,7 +790,35 @@ void App::renderUpdateRequired() {
     roundRect(discord, 12, hover ? color(0x4E68E8) : color(0x4458D4), 1, color(0x9AA8FF, hover ? .7f : .38f));
     drawText(L"Open Discord to download the update", discord, color(0xFFFFFF), buttonFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
     if (alpha > .75f) addHit(discord, HitType::DiscordUpdate);
-    target_->PopLayer();
+    if(updateLayerPushed)target_->PopLayer();
+}
+
+void App::renderServiceBlocked() {
+    float alpha = std::clamp(serviceBlockAnimation, 0.f, 1.f);
+    bool offline = !core_.manifestVerifiedOnline();
+    brush_->SetColor(color(0x030611, .94f * alpha));
+    target_->FillRectangle(D2D1::RectF(0, 0, width_, height_), brush_.Get());
+    float cardW = 500.f, cardH = 310.f;
+    float x = width_ / 2 - cardW / 2, y = height_ / 2 - cardH / 2 + (1.f - easeOutCubic(alpha)) * 20.f;
+    ComPtr<ID2D1Layer> blockerLayer;
+    bool blockerLayerPushed=SUCCEEDED(target_->CreateLayer(blockerLayer.GetAddressOf()))&&blockerLayer.Get()!=nullptr;
+    if(blockerLayerPushed)target_->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::Matrix3x2F::Identity(), alpha), blockerLayer.Get());
+    Rect card{x, y, cardW, cardH};
+    roundRect(card, 24, color(0x091224, .997f), 1, color(offline ? 0x3D63A4 : 0x8A3C55, .85f));
+    roundRect({x + 32, y + 30, 64, 64}, 18, color(offline ? 0x17376F : 0x4A1C2D), 1, color(offline ? 0x4D8BFF : 0xFF5C7A, .65f));
+    drawIcon(offline ? Icon::Refresh : Icon::Close, {x + 49, y + 47, 30, 30}, color(offline ? 0x93B9FF : 0xFF9AAF), 2.f);
+    drawText(offline ? L"Connection required" : L"Client maintenance", {x + 116, y + 27, cardW - 148, 38}, color(0xF3F7FF), titleFont_.Get());
+    drawText(offline ? L"Online manifest verification failed" : L"Launching is temporarily disabled", {x + 116, y + 65, cardW - 148, 24}, color(0x7890B7), smallFont_.Get());
+    std::wstring message = offline ? L"The loader cannot verify the current manifest. Cached data is display-only and can never be used to launch the client." : core_.manifest().maintenanceMessage;
+    if (message.empty()) message = L"The client is temporarily unavailable due to maintenance.";
+    drawText(message, {x + 32, y + 118, cardW - 64, 68}, color(0xAFC0DC), bodyFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    line(x + 32, y + 202, x + cardW - 32, y + 202, color(0x263B60, .7f), 1.f);
+    Rect action{x + 32, y + 229, cardW - 64, 46};
+    bool hover = action.contains(hoverX_, hoverY_);
+    roundRect(action, 12, hover ? color(offline ? 0x397FF4 : 0xA93A57) : color(offline ? 0x2F6DE0 : 0x8D304A), 1, color(offline ? 0x91B5FF : 0xFF8CA3, hover ? .7f : .38f));
+    drawText(offline ? L"Retry online verification" : L"Close loader", action, color(0xFFFFFF), buttonFont_.Get(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    if (alpha > .75f) addHit(action, offline ? HitType::Refresh : HitType::Close);
+    if(blockerLayerPushed)target_->PopLayer();
 }
 
 void App::applyWindowTheme() {
@@ -780,16 +835,18 @@ void App::render() {
     PAINTSTRUCT paint{};BeginPaint(hwnd_,&paint);if(!createGraphics()){EndPaint(hwnd_,&paint);return;}hits_.clear();target_->BeginDraw();target_->Clear(color(0x050914));
     D2D1_GRADIENT_STOP stops[]={{0,color(0x175DE8,.10f)},{1,color(0x071227,0)}};ComPtr<ID2D1GradientStopCollection> collection;ComPtr<ID2D1RadialGradientBrush> glow;
     activeTheme = std::clamp(core_.settings().theme, 0, 2);
-    target_->CreateGradientStopCollection(stops,2,collection.GetAddressOf());float gx=width_*.72f+std::sin(time_*.22f)*38.f;
-    target_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(gx,-80),D2D1::Point2F(0,0),520,420),collection.Get(),glow.GetAddressOf());if(glow)target_->FillRectangle(D2D1::RectF(0,0,width_,height_),glow.Get());
+    HRESULT gradientResult=target_->CreateGradientStopCollection(stops,2,collection.GetAddressOf());float gx=width_*.72f+std::sin(time_*.22f)*38.f;
+    if(SUCCEEDED(gradientResult)&&collection.Get()!=nullptr)target_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(gx,-80),D2D1::Point2F(0,0),520,420),collection.Get(),glow.GetAddressOf());if(glow)target_->FillRectangle(D2D1::RectF(0,0,width_,height_),glow.Get());
     ComPtr<ID2D1RadialGradientBrush> lowerGlow;float gy=height_+90+std::cos(time_*.18f)*28.f;
-    target_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(width_*.35f,gy),D2D1::Point2F(0,0),430,260),collection.Get(),lowerGlow.GetAddressOf());if(lowerGlow)target_->FillRectangle(D2D1::RectF(0,0,width_,height_),lowerGlow.Get());
+    if(SUCCEEDED(gradientResult)&&collection.Get()!=nullptr)target_->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(D2D1::Point2F(width_*.35f,gy),D2D1::Point2F(0,0),430,260),collection.Get(),lowerGlow.GetAddressOf());if(lowerGlow)target_->FillRectangle(D2D1::RectF(0,0,width_,height_),lowerGlow.Get());
     renderSidebar();renderTitlebar();Rect area{246,60,width_-276,height_-88};
-    ComPtr<ID2D1Layer> layer;target_->CreateLayer(layer.GetAddressOf());
+    ComPtr<ID2D1Layer> layer;
+    bool pageLayerPushed=SUCCEEDED(target_->CreateLayer(layer.GetAddressOf()))&&layer.Get()!=nullptr;
     float pageProgress=smoothStep(transition_);float pageAlpha=pageProgress*introAnim_;
     float pageOffset=(1.f-pageProgress)*18.f*static_cast<float>(pageSlideDirection);
-    auto params=D2D1::LayerParameters(D2D1::InfiniteRect(),nullptr,D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,D2D1::Matrix3x2F::Translation(pageOffset,0),pageAlpha);target_->PushLayer(params,layer.Get());
-    if(page_==0)renderHome(area);else if(page_==1)renderModules(area);else renderSettings(area);target_->PopLayer();if(core_.updateRequired())renderUpdateRequired();else if(onboardingAnim_>.01f)renderOnboarding();
+    auto params=D2D1::LayerParameters(D2D1::InfiniteRect(),nullptr,D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,D2D1::Matrix3x2F::Translation(pageOffset,0),pageAlpha);
+    if(pageLayerPushed)target_->PushLayer(params,layer.Get());
+    if(page_==0)renderHome(area);else if(page_==1)renderModules(area);else renderSettings(area);if(pageLayerPushed)target_->PopLayer();if(!core_.manifestVerifiedOnline())renderServiceBlocked();else if(core_.manifest().maintenance)renderServiceBlocked();else if(core_.updateRequired())renderUpdateRequired();else if(onboardingAnim_>.01f)renderOnboarding();
     HRESULT result=target_->EndDraw();if(result==D2DERR_RECREATE_TARGET){avatarBitmap_.Reset();logoBitmap_.Reset();brush_.Reset();target_.Reset();}EndPaint(hwnd_,&paint);
 }
 
@@ -802,8 +859,10 @@ void App::click(float x, float y) {
     for (auto it = hits_.rbegin(); it != hits_.rend(); ++it) {
         const auto& hit = *it;
         if (!hit.rect.contains(x, y)) continue;
-        if (core_.updateRequired() && hit.type != HitType::DiscordUpdate && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
-        if (firstRun_ && hit.type != HitType::Continue && hit.type != HitType::Avatar && hit.type != HitType::Close) return;
+        if (core_.manifestVerifiedOnline() && core_.updateRequired() && hit.type != HitType::DiscordUpdate && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
+        bool serviceBlocked = core_.manifest().maintenance || !core_.manifestVerifiedOnline();
+        if (serviceBlocked && hit.type != HitType::Refresh && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
+        if (firstRun_ && hit.type != HitType::Continue && hit.type != HitType::Avatar && hit.type != HitType::Refresh && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
         if (busy_ && hit.type != HitType::Launch && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
         if (transition_ < .94f && hit.type != HitType::Nav && hit.type != HitType::Close && hit.type != HitType::Minimize) return;
         switch (hit.type) {
@@ -820,6 +879,10 @@ void App::click(float x, float y) {
                 }
                 break;
             }
+            case HitType::Refresh:
+                core_.refreshManifest();
+                updateEditVisibility();
+                break;
             case HitType::Browse: browseFolder(); break;
             case HitType::Avatar: chooseAvatar(); break;
             case HitType::Continue:
@@ -846,6 +909,16 @@ void App::click(float x, float y) {
                 InvalidateRect(nickEdit_, nullptr, TRUE);
                 InvalidateRect(pathEdit_, nullptr, TRUE);
                 break;
+            case HitType::JavaMode: {
+                static const wchar_t* modes[] = {L"auto", L"bundled", L"system"};
+                static const wchar_t* labels[] = {L"Auto", L"Bundled Java 21", L"System Java 21"};
+                if (hit.index < 3) {
+                    core_.settings().javaMode = modes[hit.index];
+                    core_.saveSettings();
+                    core_.setStatus(std::wstring(L"Java runtime: ") + labels[hit.index]);
+                }
+                break;
+            }
             case HitType::DiscordUpdate: openUpdateChannel(); break;
             case HitType::Ram:
                 ramDragging_ = true;
@@ -881,7 +954,7 @@ void App::syncCoreToEdits() {
 }
 
 void App::updateEditVisibility() {
-    bool blocked = core_.updateRequired();
+    bool blocked = core_.updateRequired() || core_.manifest().maintenance || !core_.manifestVerifiedOnline();
     bool settings = page_ == 2 && !firstRun_ && !blocked && transition_ > .82f;
     ShowWindow(nickEdit_, (settings || (firstRun_ && !blocked)) ? SW_SHOW : SW_HIDE);
     ShowWindow(pathEdit_, settings ? SW_SHOW : SW_HIDE);
@@ -922,4 +995,9 @@ void App::beginLaunch() {
         { std::lock_guard lock(statusMutex_); asyncStatus_ = core_.status(); }
         PostMessageW(hwnd_, WM_APP + 1, ok ? 1 : 0, 0);
     });
+}
+
+int RunApplication(HINSTANCE instance, int show) {
+    App app;
+    return app.run(instance, show);
 }

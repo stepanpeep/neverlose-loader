@@ -19,6 +19,7 @@ public:
     bool refreshManifest();
     bool saveSettings();
     bool updateRequired() const;
+    bool manifestVerifiedOnline() const;
     static const wchar_t* currentVersion();
     bool launch(std::atomic_bool& cancelled, ArtifactDownloader::Progress progress);
 

@@ -2,6 +2,5 @@
 #include <windows.h>
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
-    App app;
-    return app.run(instance, show);
+    return RunApplication(instance, show);
 }
