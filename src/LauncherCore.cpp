@@ -11,8 +11,10 @@
 
 
 namespace {
-constexpr const wchar_t* kOfficialManifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
-constexpr const wchar_t* kLauncherVersion = L"1.2.1";
+constexpr const wchar_t* kOfficialManifestUrl = L"https://api.github.com/repos/stepanpeep/neverlose-loader/contents/manifest/manifest.example.json?ref=main";
+constexpr const wchar_t* kRawManifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
+constexpr const wchar_t* kCdnManifestUrl = L"https://cdn.jsdelivr.net/gh/stepanpeep/neverlose-loader@main/manifest/manifest.example.json";
+constexpr const wchar_t* kLauncherVersion = L"1.0.3";
 std::atomic_bool onlineManifestVerified{false};
 
 std::wstring freshUrl(const wchar_t* base) {
@@ -21,7 +23,9 @@ std::wstring freshUrl(const wchar_t* base) {
     ULARGE_INTEGER value{};
     value.LowPart = time.dwLowDateTime;
     value.HighPart = time.dwHighDateTime;
-    return std::wstring(base) + L"?nl=" + std::to_wstring(value.QuadPart);
+    std::wstring url(base);
+    url += url.find(L'?') == std::wstring::npos ? L"?nl=" : L"&nl=";
+    return url + std::to_wstring(value.QuadPart);
 }
 
 std::vector<int> versionParts(const std::wstring& value) {
@@ -66,13 +70,25 @@ bool LauncherCore::refreshManifest() {
     onlineManifestVerified = false;
     LauncherManifest next;
     std::wstring primaryError;
+    std::wstring rawError;
+    std::wstring cdnError;
     std::wstring cacheError;
     bool loaded = manifestService_.load(freshUrl(kOfficialManifestUrl), next, primaryError);
     settings_.manifestUrl = kOfficialManifestUrl;
+    if (!loaded) {
+        loaded = manifestService_.load(freshUrl(kRawManifestUrl), next, rawError);
+        if (loaded) settings_.manifestUrl = kRawManifestUrl;
+    }
+    if (!loaded) {
+        loaded = manifestService_.load(freshUrl(kCdnManifestUrl), next, cdnError);
+        if (loaded) settings_.manifestUrl = kCdnManifestUrl;
+    }
     if (loaded) onlineManifestVerified = true;
     else loaded = manifestService_.loadCached(next, cacheError);
     if (!loaded) {
         status_ = L"Unable to verify online manifest: " + primaryError;
+        if (!rawError.empty() && rawError != primaryError) status_ += L"; raw: " + rawError;
+        if (!cdnError.empty() && cdnError != rawError) status_ += L"; CDN: " + cdnError;
         return false;
     }
     manifest_ = std::move(next);
@@ -168,8 +184,18 @@ std::wstring LauncherCore::offlineUuid(const std::wstring& nickname) {
 bool LauncherCore::launch(std::atomic_bool& cancelled, ArtifactDownloader::Progress progress) {
     LauncherManifest accessManifest;
     std::wstring accessError;
-    onlineManifestVerified = manifestService_.load(freshUrl(kOfficialManifestUrl), accessManifest, accessError);
-    if (!onlineManifestVerified.load()) { status_ = L"Online manifest verification is required before launch: " + accessError; return false; }
+    std::wstring rawAccessError;
+    std::wstring cdnAccessError;
+    bool accessLoaded = manifestService_.load(freshUrl(kOfficialManifestUrl), accessManifest, accessError);
+    if (!accessLoaded) accessLoaded = manifestService_.load(freshUrl(kRawManifestUrl), accessManifest, rawAccessError);
+    if (!accessLoaded) accessLoaded = manifestService_.load(freshUrl(kCdnManifestUrl), accessManifest, cdnAccessError);
+    onlineManifestVerified = accessLoaded;
+    if (!onlineManifestVerified.load()) {
+        status_ = L"Online manifest verification is required before launch: " + accessError;
+        if (!rawAccessError.empty() && rawAccessError != accessError) status_ += L"; raw: " + rawAccessError;
+        if (!cdnAccessError.empty() && cdnAccessError != rawAccessError) status_ += L"; CDN: " + cdnAccessError;
+        return false;
+    }
     if (requiresUpdate(accessManifest)) { status_ = L"Loader update required"; return false; }
     if (accessManifest.maintenance) { status_ = accessManifest.maintenanceMessage.empty() ? L"The loader is under maintenance" : accessManifest.maintenanceMessage; return false; }
     if (updateRequired()) { status_ = L"Loader update required"; return false; }

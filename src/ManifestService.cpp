@@ -99,17 +99,22 @@ bool fetchHttpOnce(const std::wstring& source, DWORD accessType, std::string& da
         return false;
     }
 
-    HINTERNET session = WinHttpOpen(L"NeverloseLoader/1.2.1", accessType, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET session = WinHttpOpen(L"NeverloseLoader/1.0.3", accessType, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session) {
         error = L"WinHTTP initialization failed: " + windowsError(GetLastError());
         return false;
     }
 
-    WinHttpSetTimeouts(session, 7000, 7000, 12000, 20000);
-    DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2;
-    WinHttpSetOption(session, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
-
     std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
+    bool githubApi = host == L"api.github.com";
+    bool smallRequest = maximumBytes <= 16 * 1024 * 1024;
+    WinHttpSetTimeouts(session,
+                       smallRequest ? 3000 : 6000,
+                       smallRequest ? 3500 : 6000,
+                       smallRequest ? 5000 : 12000,
+                       smallRequest ? (githubApi ? 7000 : 9000) : 30000);
+    DWORD connectRetries = 1;
+    WinHttpSetOption(session, WINHTTP_OPTION_CONNECT_RETRIES, &connectRetries, sizeof(connectRetries));
     HINTERNET connection = WinHttpConnect(session, host.c_str(), parts.nPort, 0);
     if (!connection) {
         DWORD code = GetLastError();
@@ -123,7 +128,7 @@ bool fetchHttpOnce(const std::wstring& source, DWORD accessType, std::string& da
     if (parts.dwExtraInfoLength) path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
     if (path.empty()) path = L"/";
     DWORD flags = parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
-    const wchar_t* accepted[] = {L"application/json", L"text/plain", L"*/*", nullptr};
+    const wchar_t* accepted[] = {L"application/vnd.github.raw+json", L"application/json", L"text/plain", L"*/*", nullptr};
     HINTERNET request = WinHttpOpenRequest(connection, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, accepted, flags);
     if (!request) {
         DWORD code = GetLastError();
@@ -140,7 +145,7 @@ bool fetchHttpOnce(const std::wstring& source, DWORD accessType, std::string& da
     WinHttpSetOption(request, WINHTTP_OPTION_DECOMPRESSION, &decompression, sizeof(decompression));
 #endif
 
-    const wchar_t* headers = L"Accept: application/json, text/plain, */*\r\nCache-Control: no-cache\r\nPragma: no-cache\r\n";
+    const wchar_t* headers = L"Accept: application/vnd.github.raw+json, application/json, text/plain, */*\r\nX-GitHub-Api-Version: 2022-11-28\r\nCache-Control: no-cache, no-store, max-age=0\r\nPragma: no-cache\r\nConnection: close\r\n";
     if (!WinHttpSendRequest(request, headers, static_cast<DWORD>(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
         DWORD code = GetLastError();
         WinHttpCloseHandle(request);
@@ -241,14 +246,14 @@ bool ManifestService::fetchBytes(const std::wstring& source, std::string& data, 
         return readFile(path, data, error, maximumBytes);
     }
 
-    std::wstring automaticError;
-    if (fetchHttpOnce(source, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, data, automaticError, maximumBytes)) return true;
-    Sleep(250);
-
     std::wstring directError;
     if (fetchHttpOnce(source, WINHTTP_ACCESS_TYPE_NO_PROXY, data, directError, maximumBytes)) return true;
-    error = automaticError;
-    if (!directError.empty() && directError != automaticError) error += L"; direct connection: " + directError;
+    Sleep(120);
+
+    std::wstring proxyError;
+    if (fetchHttpOnce(source, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, data, proxyError, maximumBytes)) return true;
+    error = directError;
+    if (!proxyError.empty() && proxyError != directError) error += L"; configured proxy: " + proxyError;
     return false;
 }
 

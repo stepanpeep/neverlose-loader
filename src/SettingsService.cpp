@@ -34,7 +34,7 @@ LauncherSettings SettingsService::load() const {
     s.language = readValue(file, L"Language", L"en");
     s.installDir = readValue(file, L"InstallDir", L"C:\\NeverloseClient");
     s.javaMode = readValue(file, L"JavaMode", L"auto");
-    s.manifestUrl = L"https://raw.githubusercontent.com/stepanpeep/neverlose-loader/main/manifest/manifest.example.json";
+    s.manifestUrl = L"https://api.github.com/repos/stepanpeep/neverlose-loader/contents/manifest/manifest.example.json?ref=main";
     s.selectedVersion = readValue(file, L"SelectedVersion", L"1.21");
     s.selectedPreset = readValue(file, L"SelectedPreset", L"");
     s.theme = GetPrivateProfileIntW(L"Launcher", L"Theme", 1, file.c_str());

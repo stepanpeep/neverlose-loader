@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(NeverloseLoader VERSION 1.2.1 LANGUAGES CXX RC)
+project(NeverloseLoader VERSION 1.0.3 LANGUAGES CXX RC)
 
 if(NOT WIN32)
     message(FATAL_ERROR "This launcher targets Windows 10/11 only")

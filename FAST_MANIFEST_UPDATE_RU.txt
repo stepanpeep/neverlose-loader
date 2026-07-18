@@ -1,0 +1,24 @@
+FAST MANIFEST UPDATE 1.0.3
+
+Изменения:
+- версия лоадера, CMake и обоих manifest установлена в 1.0.3;
+- основная загрузка manifest переведена с raw GitHub CDN на GitHub Contents API;
+- API запрашивает raw-содержимое manifest напрямую из ветки main;
+- каждый запрос получает уникальный nl-параметр;
+- добавлены Cache-Control: no-cache, no-store, max-age=0 и Pragma: no-cache;
+- уменьшены сетевые таймауты;
+- raw.githubusercontent.com оставлен только резервным источником;
+- перед запуском клиента manifest повторно проверяется онлайн;
+- при отсутствии свежей онлайн-проверки запуск остаётся заблокированным.
+
+Как применить:
+1. Распаковать архив поверх ПОЛНОГО проекта с заменой.
+2. Закрыть Visual Studio и старый EXE.
+3. Запустить build-release.bat.
+4. Проверить build/Release/NeverloseLoader.exe.
+5. Сначала создать GitHub Release loader-1.0.3 с новым EXE.
+6. Затем отправить изменённые manifest в ветку main.
+
+Важно:
+Локальное изменение JSON не влияет на пользователей. Оно применяется только после успешного git push origin main.
+После push перезапусти лоадер или нажми Retry online verification. Обычно новое состояние должно загружаться сразу через GitHub API без ожидания raw CDN.
