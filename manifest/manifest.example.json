@@ -133,9 +133,9 @@
       "inheritsPreset": "performance",
       "artifacts": [
         {
-          "path": "mods/fabric-loader 6.17+.jar",
+          "path": "mods/better-minecraft+.jar",
           "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.1/neverlose.jar",
-          "sha256": "1671a2551401bc51c65b029b5639ee6f5bfe90b96378524eb2d70259c2e585bb"
+          "sha256": "9a945a080e88378f240c2538572731bce6396ad4c25855cd09d1527345c21a4f"
         }
       ],
       "mainClass": "",
