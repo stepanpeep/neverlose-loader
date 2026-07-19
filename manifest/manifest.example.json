@@ -10,7 +10,7 @@
     "updateMessage": "This loader version is outdated. Download the latest build from our Discord."
   },
   "maintenance": {
-    "enabled": true,
+    "enabled": false,
     "message": "The client is temporarily unavailable due to maintenance."
   },
   "settings": {
