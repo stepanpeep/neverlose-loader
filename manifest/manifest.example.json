@@ -1,6 +1,6 @@
 {
   "launcher": {
-    "version": "1.0.3",
+    "version": "1.0.4",
     "minimumVersion": "1.0.3",
     "branding": {
       "title": "Neverlose Loader",
@@ -135,7 +135,7 @@
         {
           "path": "mods/better-minecraft+.jar",
           "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.1/neverlose.jar",
-          "sha256": "7a6e0ac379bce431b8c793c126bc28273a89c1ab266aa7d31a0268c27b0daefc"
+          "sha256": ""
         }
       ],
       "mainClass": "",
