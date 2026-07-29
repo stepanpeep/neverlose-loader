@@ -135,7 +135,7 @@
         {
           "path": "mods/better-minecraft+.jar",
           "url": "https://github.com/stepanpeep/neverlose-loader/releases/download/client-1.0.1/neverlose.jar",
-          "sha256": "e3698deaafb31607e022767518e6a0c1331f639271c8bdfcd0de8dcabb69d0dc"
+          "sha256": "aa1ecc10c464dc8b52b86a400324c69af716fcb7622b16065d6de42a8e5a3b59"
         }
       ],
       "mainClass": "",
